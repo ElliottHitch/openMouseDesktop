@@ -1,7 +1,7 @@
-//! Update availability check against the GitHub Releases `latest.json`
-//! endpoint (the same one `src-tauri/tauri.conf.json`'s updater plugin uses),
-//! mirroring `src/lib/update-check.ts` — but check-only for now: no signature
-//! verification, download, or install here, just "is a newer version out".
+//! Update availability check against the `latest.json` that each GitHub Release
+//! publishes (see `.github/workflows/release.yml`). Check-only for now: it says
+//! whether a newer version is out. The file also carries the installer URL and
+//! its SHA-256, which is what a future in-app download and install will use.
 
 use std::time::Duration;
 
