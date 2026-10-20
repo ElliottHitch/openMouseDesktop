@@ -46,10 +46,19 @@ fn main() {
         }) {
             view.update(cx, |view, cx| view.set_page(page, cx));
         }
-        // Started by the OS at login (see autostart.rs): stay out of the way.
-        // There is no tray yet, so minimized is the quiet option.
+        // Closing the window hides it to the tray icon (where there is one).
+        let has_tray = openmouse_gpui::tray::install(cx, handle.into());
+        // Started by the OS at login (see autostart.rs): stay out of the way,
+        // in the tray if there is one, else minimized.
         if openmouse_gpui::autostart::launched_by_os() {
-            let _ = cx.update_window(handle, |_, window, _| window.minimize_window());
+            let _ = cx.update_window(handle, |_, window, _| {
+                if has_tray {
+                    #[cfg(windows)]
+                    openmouse_gpui::tray::hide(window);
+                } else {
+                    window.minimize_window();
+                }
+            });
             // A window that never became active reports no deactivation, so
             // say so here or the background scans would stay at full rate.
             openmouse_gpui::activity::ACTIVITY.set_active(false);
