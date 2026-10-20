@@ -1,0 +1,250 @@
+// Hand-maintained changelog shown in Settings (components/ChangelogModal.tsx)
+// — not generated from commit history or tauri.conf.json's own version
+// field, since neither reliably says what actually matters to someone
+// deciding whether to install an update. Add a new entry at the top each
+// time tauri.conf.json's `version` is bumped for a release.
+//
+// User-facing only — no CI/build-fix/internal-cleanup entries. A version
+// bump needed purely to fix a broken previous release (a build that failed
+// CI, a warning cleanup that broke Windows, ...) doesn't get its own line;
+// fold whatever it was actually trying to ship into the entry for the
+// version that ends up working, the way 0.0.13-0.0.15 collapsed into one
+// entry here — the reader wants "what's new for me," not "how the last
+// release attempt went."
+
+export interface ChangelogEntry {
+  version: string;
+  /** ISO date (YYYY-MM-DD), not a Date — this is display-only, never compared. */
+  date: string;
+  changes: string[];
+}
+
+export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "0.0.29",
+    date: "2026-09-16",
+    changes: [
+      "New: the tray menu now shows the connected mouse and its current battery level",
+      "New: support for the Lingbao M5 Pro, Attack Shark X11, Microsoft mice, and HyperX Pulsefire Haste",
+      "Improved: Attack Shark X11 now has device artwork plus accurate DPI controls and bounds",
+    ],
+  },
+  {
+    version: "0.0.28",
+    date: "2026-09-08",
+    changes: [
+      "Fixed: the Games list could get stuck on an outdated snapshot for up to a week — the app's own local HTTP cache was holding onto the first copy it ever fetched even after the source was updated. It now always fetches the current list.",
+    ],
+  },
+  {
+    version: "0.0.27",
+    date: "2026-09-08",
+    changes: [
+      "Diagnostics: whether the Games list loads from the live feed or the app's own built-in copy is now recorded in Settings → Download Logs, so a missing/outdated game is easier to track down",
+    ],
+  },
+  {
+    version: "0.0.26",
+    date: "2026-09-08",
+    changes: [
+      "The Games list is now fetched live instead of bundled with the app — new games can be added without an update. This release is what turns that on; no action needed beyond installing it.",
+    ],
+  },
+  {
+    version: "0.0.25",
+    date: "2026-09-08",
+    changes: [
+      "Removed the separate Bridge download and the Bridge/Full Desktop mode split introduced in 0.0.24 — OpenMouse is back to one app, no first-launch prompt, no separate downloads",
+      "Fixed: OpenMouse no longer mistakes Logitech G Hub's background updater service for the main G Hub app — it was blocking connection even when G Hub itself wasn't running",
+    ],
+  },
+  {
+    version: "0.0.24",
+    date: "2026-09-07",
+    changes: [
+      "New: OpenMouse Bridge — a separate, lightweight download for anyone who just wants the tray companion (game detection, battery alerts, native device support) without the full device-configuration app. First launch of either build now asks which one you want; switch anytime from Settings, and it fetches and installs the other one automatically if you don't have it yet",
+      "Fixed: closing the window in Full Desktop Mode now hides it to the tray instead of quitting the app, matching Bridge Mode",
+      "Fixed: the app's mode (Bridge vs Full Desktop) is now actually remembered between launches — it previously reset every time",
+    ],
+  },
+  {
+    version: "0.0.23",
+    date: "2026-09-04",
+    changes: [
+      "Fixed: applying DPI or any other setting on driver-backed (non-Logitech, non-Razer) mice failed with an \"o.close is not a function\" error — the generic write path called methods on the driver class itself instead of an instance, so writes never reached the device",
+      "Changed: the titlebar now shows the build's release stage (Alpha / Beta / Public) next to the version, based on the version number",
+    ],
+  },
+  {
+    version: "0.0.21",
+    date: "2026-09-02",
+    changes: [
+      "Fixed: connecting a mouse on Linux no longer crashes the app — Razer mice (Naga V2 Pro and others) hung on connect and crashed the app partway through; feature-report reads now handle the extra report-ID byte correctly, so supported mice connect and stay connected",
+    ],
+  },
+  {
+    version: "0.0.20",
+    date: "2026-09-02",
+    changes: [
+      "Fixed: the Linux build can now actually connect mice — a udev rule granting HID access to supported mice is now installed automatically with the .deb and .rpm packages, and the .AppImage installs it itself on first launch (previously the app couldn't open the device, so connecting any mouse hung on 'connecting…')",
+    ],
+  },
+  {
+    version: "0.0.19",
+    date: "2026-09-02",
+    changes: [
+      "Fixed: the Linux build now launches — the desktop icon appearing but the app doing nothing when clicked was a startup crash; OpenMouse Desktop opens normally now",
+    ],
+  },
+  {
+    version: "0.0.18",
+    date: "2026-09-02",
+    changes: [
+      "New: Linux build — OpenMouse Desktop now ships a .AppImage so it runs on any Linux distro, built automatically alongside the Windows installer on every release",
+      "New: full mouse support matching the web app — 80+ models across 20 brands (Logitech, Razer, Endgame Gear, Pulsar, WLMouse, Lamzu, Ninjutso, Finalmouse, Teevolution, and more) with device artwork for each",
+      "New: Supported mice page — a searchable-by-text catalog of every covered model grouped by brand",
+      "New: Advanced settings per brand — Endgame Gear filters & GX switch, Ninjutso sensor & click tuning, Finalmouse dongle LED & tournament scroll, Teevolution DPI lighting, Pulsar Pro wheel & profiles",
+      "New: Buttons tab — remap buttons on Razer and Endgame Gear mice, including scroll/toggle controls and per-button debounce",
+      "New: game profiles now work with every supported brand, not just Logitech",
+      "New: themes — pick a full preset (Emerald, Violet, Ice, Mono, Light) or paste your own custom CSS to restyle the whole app",
+      "New: clearer connect errors — when a vendor app like Razer Synapse is blocking the mouse, the app says to quit it instead of showing a cryptic driver error",
+      "UI: device list and supported-mice catalog now use a full-width document layout instead of centered cards; supported-mice icon updated in the sidebar",
+    ],
+  },
+  {
+    version: "0.0.17",
+    date: "2026-08-26",
+    changes: [
+      "New: Razer Viper Mini DPI, polling rate, and Chroma RGB lighting control — the lighting tab now works with full effect selection and color pickers",
+      "New: custom radial color picker — circular hue/saturation wheel with lightness slider, replacing the default browser color input",
+      "New: conflicting software detection — OpenMouse now warns when Razer Synapse or other vendor apps are running and blocking device access",
+      "New: device list shows supported capabilities (DPI, Polling Rate, Lighting, Profiles) for each detected device before connecting",
+      "New: device list shows larger device artwork with green accent border glow",
+      "Fixed: clicking 'Devices' back button no longer auto-redirects back to the device page",
+      "Fixed: minimum window size enforced (720×500) to prevent UI breakage at small sizes",
+    ],
+  },
+  {
+    version: "0.0.16",
+    date: "2026-08-25",
+    changes: [
+      "New: game profiles now cover the full mouse — lift-off distance and gaming surface mode, alongside DPI and polling rate",
+      "Game profile editor is now a full page instead of a popup, with the game's artwork alongside the controls and a device picker so you can target any connected mouse, not just whichever one happened to be active",
+      "Game profile fields now start pre-filled with your mouse's current settings instead of blank — edit from there rather than typing everything in from scratch",
+      "Every game card in the Games tab is now clickable, not just its small settings icon",
+      "Changelog now only lists what's actually new, not internal build fixes",
+    ],
+  },
+  {
+    version: "0.0.15",
+    date: "2026-08-25",
+    changes: [
+      "New: Games — Riot Client detection (VALORANT, League of Legends/TFT) alongside Steam and Epic",
+      "New: Games — League of Legends and TFT now show as one merged card that crossfades between both covers",
+      "New: tray icon double-click also brings the window back (Windows)",
+      "Fix: 'Show OpenMouse' now reliably brings the window back, even after closing it in Full Desktop Mode",
+    ],
+  },
+  {
+    version: "0.0.12",
+    date: "2026-08-25",
+    changes: [
+      "Fix: tray menu's 'Show OpenMouse' now restores a minimized window instead of doing nothing",
+      "New: back button on the device overview to return to the device selector",
+    ],
+  },
+  {
+    version: "0.0.11",
+    date: "2026-08-25",
+    changes: [
+      "New: compact icon sidebar replaces the top header — Overview and Games are one click away, Settings and Update at the bottom",
+      "New: installed game scanner — detects Steam and Epic Games Store installs automatically, shows installed games first with a badge",
+      "Overview rewrite — large device showcase, capability-driven tab bar (Overview/Performance/Lighting/Profiles/Buttons), live status and info grids",
+      "Game cards now highlight green on hover, grid is responsive and fills left-to-right",
+      "Discord Rich Presence now shows 'Dev Mode' indicator during development builds",
+      "Performance tab is read-only when a game profile is active (prevents accidental edits during gameplay)",
+    ],
+  },
+  {
+    version: "0.0.10",
+    date: "2026-08-25",
+    changes: [
+      "Fixed: Razer Viper Mini (and other Razer mice) now connect on Windows — the HID feature report buffer was too small and the response was returning an extra report-ID byte that broke the protocol decode",
+    ],
+  },
+  {
+    version: "0.0.9",
+    date: "2026-08-25",
+    changes: [
+      "Overview is wider (720px → 960px) so the device card has more room to breathe — Games and Settings are unchanged",
+    ],
+  },
+  {
+    version: "0.0.8",
+    date: "2026-08-25",
+    changes: [
+      "Fixed: the game-switch overlay could land partly under the Windows taskbar on a \"bottom\" corner — now positioned against the screen's actual usable area, not its full size",
+      "Removed the overlay's size options — it's always the size that used to be \"Large\"",
+      "Overlay position picker is text (TL/TR/BL/BR) instead of icons",
+    ],
+  },
+  {
+    version: "0.0.7",
+    date: "2026-08-25",
+    changes: [
+      "Fixed: the game-switch overlay showed a scrollbar and could overflow its box on the \"Small\" size — it's now a single-line pill that always fits",
+      "Fixed: the overlay's position picker in Settings could wrap onto two rows — now a compact row of 4",
+      "Simplified the overlay to a minimal single-line toast instead of a title+description card",
+    ],
+  },
+  {
+    version: "0.0.6",
+    date: "2026-08-25",
+    changes: [
+      "Game-switch notifications now show as a small always-on-top overlay instead of only inside the app window — visible even while a game is fullscreen (OS notifications were skipped since most systems auto-suppress those during fullscreen games)",
+      "Settings → Game-switch overlay: choose which corner it appears in and how big it is, with a Test button to preview it",
+    ],
+  },
+  {
+    version: "0.0.5",
+    date: "2026-08-25",
+    changes: [
+      "Check for Updates no longer installs automatically — it now shows what version was found and waits for you to confirm before downloading and restarting",
+    ],
+  },
+  {
+    version: "0.0.4",
+    date: "2026-08-25",
+    changes: [
+      "Fixed: a game profile could fail to apply with \"this device is already busy\" if it landed at the same moment as the background status refresh — writes now retry for a few seconds instead of failing outright",
+    ],
+  },
+  {
+    version: "0.0.3",
+    date: "2026-08-25",
+    changes: [
+      "Overview now shows when a game profile has taken over the mouse — a banner with the game's name, live DPI/polling rate numbers that match what's actually applied",
+      "The Performance tab locks (with an explanation) while a game profile is in control, so editing your defaults mid-game can't get silently overwritten or redefine what \"default\" means",
+    ],
+  },
+  {
+    version: "0.0.2",
+    date: "2026-08-25",
+    changes: [
+      "Fixed: game profiles (DPI/polling rate) could silently fail to apply — the profile editor now saves as you edit instead of requiring a separate Save click",
+      "Applying a game profile now reaches the mouse faster and more reliably (DPI and polling rate share one connection instead of two)",
+    ],
+  },
+  {
+    version: "0.0.1",
+    date: "2026-08-24",
+    changes: [
+      "Device control: DPI presets and custom X/Y axes, polling rate, lift-off distance, gaming surface mode",
+      "Per-game profiles — DPI and polling rate applied automatically when a game launches, restored automatically when it closes",
+      "Games page with live running-game detection",
+      "In-app CPU/RAM resource monitor",
+      "Auto-updates, checked automatically every 30 minutes",
+      "Diagnostic log export for bug reports",
+    ],
+  },
+];

@@ -1,0 +1,36 @@
+[package]
+name = "openmouse-installer"
+version = "0.0.29"
+edition = "2021"
+
+# Standalone crate, not a workspace member of `gpui/` — its build.rs needs
+# only the already-built `openmouse-gpui.exe` bytes, not the node/esbuild
+# toolchain `gpui/build.rs` runs for the JS driver bundle.
+#
+# One binary serves as both installer and uninstaller (mode picked at
+# runtime — see `src/main.rs`), not two `[[bin]]` targets: the installer
+# copies ITS OWN running .exe into the install dir as the uninstaller, so
+# there's no circular "uninstaller bytes embedded in the installer" build
+# step to sequence.
+[[bin]]
+name = "openmouse-installer"
+path = "src/main.rs"
+
+[dependencies]
+gpui-kit = "0.7"
+anyhow = "1.0"
+dirs = "6"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+# Pure-Rust .lnk writer — no COM/windows-rs, matching the repo's existing
+# "no windows crate" stance (see gpui/src/native_window/win.rs).
+mslnk = "0.1"
+
+[build-dependencies]
+winres = "0.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

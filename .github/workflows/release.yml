@@ -1,0 +1,60 @@
+name: Release
+
+# Publishes a GitHub Release with the Windows installer. Push a tag like
+# v0.1.0 (or run this by hand and give it a tag) to cut one. The app's own
+# update check reads releases/latest, so this must publish a real,
+# non-draft, non-prerelease release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.1.0"
+        required: true
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gpui
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build release binary
+        run: cargo build --release
+        working-directory: gpui
+
+      # Embeds the app's release .exe as the installer's payload.
+      - name: Build installer
+        run: cargo build --release
+        working-directory: gpui/installer
+
+      - name: Rename installer
+        run: cp gpui/installer/target/release/openmouse-installer.exe OpenMouseDesktopSetup.exe
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" OpenMouseDesktopSetup.exe \
+            --title "OpenMouse Desktop $TAG" \
+            --notes "See Settings → Changelog in the app for details."
