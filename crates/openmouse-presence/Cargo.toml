@@ -1,6 +1,6 @@
 [package]
 name = "openmouse-presence"
-version = "0.0.29"
+version = "0.0.1"
 description = "Discord Rich Presence shared by the Tauri and GPUI desktop apps"
 edition = "2021"
 

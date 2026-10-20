@@ -123,9 +123,8 @@ fn ascii_background_rows(cols: usize, rows: usize) -> Vec<SharedString> {
     }
     out
 }
-/// Release stage label shown in the titlebar badge, mirroring
-/// `stageForVersion` in `src/lib/version-stage.ts`: 0.x → Alpha,
-/// 1.x → Beta, 2.x+ → Public.
+/// Release stage label shown in the titlebar badge: every 0.x build is a
+/// Beta, 1.0 and later are Public.
 fn release_stage(version: &str) -> &'static str {
     let major = version
         .trim_start_matches('v')
@@ -135,8 +134,6 @@ fn release_stage(version: &str) -> &'static str {
         .parse::<u64>()
         .unwrap_or(0);
     if major == 0 {
-        "Alpha"
-    } else if major == 1 {
         "Beta"
     } else {
         "Public"

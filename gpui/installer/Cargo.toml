@@ -1,6 +1,6 @@
 [package]
 name = "openmouse-installer"
-version = "0.0.29"
+version = "0.0.1"
 edition = "2021"
 
 # Standalone crate, not a workspace member of `gpui/` — its build.rs needs
