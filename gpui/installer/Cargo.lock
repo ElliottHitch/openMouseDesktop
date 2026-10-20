@@ -4388,6 +4388,8 @@ dependencies = [
  "dirs 6.0.0",
  "gpui-kit",
  "mslnk",
+ "serde",
+ "serde_json",
  "winreg 0.52.0",
  "winres",
 ]

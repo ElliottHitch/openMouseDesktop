@@ -6,6 +6,12 @@ use gpui_kit::*;
 use openmouse_gpui::app::AppView;
 
 fn main() {
+    // Headless mode for the installer: list the plugged-in supported devices
+    // and exit before any window or background work starts.
+    if let Some(path) = openmouse_gpui::supported_devices::requested_path() {
+        openmouse_gpui::supported_devices::write(&path);
+        return;
+    }
     application().with_assets(assets::AllAssets).run(|cx| {
         init(cx);
 

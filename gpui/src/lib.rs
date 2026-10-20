@@ -12,6 +12,7 @@ pub mod presence_text;
 pub mod proc;
 pub mod profiles;
 pub mod settings;
+pub mod supported_devices;
 pub mod theme;
 pub mod update_check;
 #[cfg(windows)]
