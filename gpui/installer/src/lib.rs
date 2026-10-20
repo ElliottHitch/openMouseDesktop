@@ -1,4 +1,5 @@
 pub mod colors;
+pub mod devices;
 pub mod paths;
 pub mod payload;
 pub mod registry;

@@ -47,16 +47,94 @@ enum Screen {
     Done,
 }
 
+/// What the device scan on the welcome screen has found so far.
+enum DeviceScan {
+    Scanning,
+    Found(Vec<openmouse_installer::devices::Device>),
+    /// The scan could not run; the card says so rather than claiming none.
+    Unavailable,
+}
+
 struct InstallerView {
     uninstall_mode: bool,
     screen: Screen,
     error: Option<String>,
     desktop_shortcut: bool,
+    devices: DeviceScan,
 }
 
 impl InstallerView {
     fn new(uninstall_mode: bool) -> Self {
-        Self { uninstall_mode, screen: Screen::Start, error: None, desktop_shortcut: true }
+        Self { uninstall_mode, screen: Screen::Start, error: None, desktop_shortcut: true, devices: DeviceScan::Scanning }
+    }
+
+    /// Looks for plugged-in supported devices in the background and shows them
+    /// on the welcome screen. Install does not wait on it.
+    fn scan_devices(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |view, cx| {
+            let result = cx.background_executor().spawn(async { openmouse_installer::devices::scan() }).await;
+            let _ = view.update(cx, |view, cx| {
+                view.devices = match result {
+                    Ok(found) => DeviceScan::Found(found),
+                    Err(_) => DeviceScan::Unavailable,
+                };
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The "your devices" card: the supported devices that are plugged in now.
+    fn devices_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let fg = cx.theme().foreground;
+        let muted = cx.theme().muted_foreground;
+        let accent = cx.theme().primary;
+        let border = cx.theme().border;
+        const SHOWN: usize = 4;
+        let heading = div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(muted).child("SUPPORTED DEVICES DETECTED");
+        let body: AnyElement = match &self.devices {
+            DeviceScan::Scanning => h_flex()
+                .gap_2()
+                .items_center()
+                .child(Spinner::new().with_size(Size::Small).color(accent).into_any_element())
+                .child(div().text_sm().text_color(muted).child("Looking for your mice…"))
+                .into_any_element(),
+            DeviceScan::Unavailable => {
+                div().text_sm().text_color(muted).child("Couldn’t check for devices. OpenMouse will find them when it starts.").into_any_element()
+            }
+            DeviceScan::Found(found) if found.is_empty() => div()
+                .text_sm()
+                .text_color(muted)
+                .child("None plugged in right now. OpenMouse picks a device up as soon as you plug one in.")
+                .into_any_element(),
+            DeviceScan::Found(found) => div()
+                .flex()
+                .flex_col()
+                .gap_1p5()
+                .children(found.iter().take(SHOWN).map(|device| {
+                    let name = if device.name.trim().is_empty() { device.brand.clone() } else { device.name.clone() };
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(Icon::new(IconName::Check).size(px(14.)).text_color(accent))
+                        .child(div().text_sm().text_color(fg).child(name))
+                        .child(div().text_xs().text_color(muted).child(device.brand.clone()))
+                }))
+                .when(found.len() > SHOWN, |col| {
+                    col.child(div().text_xs().text_color(muted).child(format!("and {} more", found.len() - SHOWN)))
+                })
+                .into_any_element(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .rounded_lg()
+            .border_1()
+            .border_color(border)
+            .child(heading)
+            .child(body)
     }
 
     fn step_index(&self) -> usize {
@@ -199,6 +277,7 @@ impl Render for InstallerView {
                         .text_color(muted)
                         .child(format!("Installs to {}", paths::install_dir().display())),
                 )
+                .child(self.devices_card(cx))
                 .child(
                     Checkbox::new("desktop-shortcut")
                         .checked(self.desktop_shortcut)
@@ -313,7 +392,7 @@ fn main() {
         init(cx);
         // No explicit `window_bounds` otherwise defaults to filling the
         // display — this is a small dialog, not a resizable app window.
-        let window_size = size(px(480.), px(340.));
+        let window_size = size(px(480.), px(440.));
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, window_size, cx))),
             window_min_size: Some(window_size),
@@ -321,7 +400,7 @@ fn main() {
             window_background: WindowBackgroundAppearance::Transparent,
             ..TitleBar::window_options()
         };
-        let (handle, _view) = open_window(options, cx, |_window, cx| cx.new(|_| InstallerView::new(uninstall)))
+        let (handle, view) = open_window(options, cx, |_window, cx| cx.new(|_| InstallerView::new(uninstall)))
             .expect("failed to open installer window");
         // Applied after the window exists, not inside the build closure:
         // `Theme::change`/`Theme::update` mid-construction poisons first
@@ -330,6 +409,9 @@ fn main() {
             Theme::change(ThemeMode::Dark, Some(window), cx);
             openmouse_installer::colors::paint(cx);
         });
+        if !uninstall {
+            view.update(cx, |view, cx| view.scan_devices(cx));
+        }
         cx.activate(true);
     });
 }
