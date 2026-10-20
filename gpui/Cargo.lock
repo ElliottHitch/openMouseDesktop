@@ -4418,7 +4418,7 @@ dependencies = [
 
 [[package]]
 name = "openmouse-gpui"
-version = "0.0.29"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "cocoa 0.25.0",
@@ -4441,7 +4441,7 @@ dependencies = [
 
 [[package]]
 name = "openmouse-hid"
-version = "0.0.29"
+version = "0.0.1"
 dependencies = [
  "hidapi",
  "parking_lot",
@@ -4450,7 +4450,7 @@ dependencies = [
 
 [[package]]
 name = "openmouse-presence"
-version = "0.0.29"
+version = "0.0.1"
 dependencies = [
  "discord-rich-presence",
  "parking_lot",

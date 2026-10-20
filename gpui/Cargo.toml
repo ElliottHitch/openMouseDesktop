@@ -1,6 +1,6 @@
 [package]
 name = "openmouse-gpui"
-version = "0.0.29"
+version = "0.0.1"
 edition = "2021"
 
 [[bin]]
@@ -21,9 +21,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 futures = "0.3.34"
 futures-timer = "3.0.4"
-openmouse-hid = { version = "0.0.29", path = "../crates/openmouse-hid" }
+openmouse-hid = { version = "0.0.1", path = "../crates/openmouse-hid" }
 rquickjs = { version = "0.14", features = ["futures"] }
-openmouse-presence = { version = "0.0.29", path = "../crates/openmouse-presence" }
+openmouse-presence = { version = "0.0.1", path = "../crates/openmouse-presence" }
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "=0.25.0"
 objc = "=0.2.7"
