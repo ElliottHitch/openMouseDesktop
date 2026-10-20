@@ -1,14 +1,27 @@
 name: Release
 
-# Publishes a GitHub Release with the Windows installer. Push a tag like
-# v0.1.0 (or run this by hand and give it a tag) to cut one. The app's own
-# update check reads releases/latest, so this must publish a real,
-# non-draft, non-prerelease release.
+# Publishes a GitHub Release for a version tag. Each release carries:
+#
+#   OpenMouseDesktopSetup.exe  the Windows installer. The file name never
+#                              changes, so
+#                              releases/latest/download/OpenMouseDesktopSetup.exe
+#                              is a permanent "download the newest" link.
+#   latest.json                what the app's update check reads
+#                              (releases/latest/download/latest.json): version,
+#                              notes, and the installer's URL and SHA-256.
+#
+# To release: bump `version` in gpui/Cargo.toml (and gpui/installer/Cargo.toml),
+# add that version's entry to gpui/js/lib/changelog.ts, merge, then push a tag
+# like v0.1.0 (or run this by hand with that tag). The tag, Cargo version and
+# changelog entry must all agree or the run stops before publishing.
+#
+# `releases/latest` only resolves to the newest non-draft, non-prerelease
+# release, so this publishes as one.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release, e.g. v0.1.0"
+        description: "Tag to release, e.g. v0.1.0 (created from the selected branch if it does not exist)"
         required: true
   push:
     tags:
@@ -20,8 +33,21 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the tag matches the app version
+        shell: bash
+        run: |
+          version="${TAG#v}"
+          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' gpui/Cargo.toml | head -1)
+          installer_version=$(sed -n 's/^version = "\(.*\)"/\1/p' gpui/installer/Cargo.toml | head -1)
+          if [ "$version" != "$cargo_version" ] || [ "$version" != "$installer_version" ]; then
+            echo "::error::Tag $TAG, gpui/Cargo.toml ($cargo_version) and gpui/installer/Cargo.toml ($installer_version) must all be the same version."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -37,6 +63,10 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      - name: Test
+        run: cargo test
+        working-directory: gpui
+
       - name: Build release binary
         run: cargo build --release
         working-directory: gpui
@@ -46,15 +76,22 @@ jobs:
         run: cargo build --release
         working-directory: gpui/installer
 
-      - name: Rename installer
-        run: cp gpui/installer/target/release/openmouse-installer.exe OpenMouseDesktopSetup.exe
+      - name: Collect release files
+        shell: bash
+        run: |
+          mkdir release
+          cp gpui/installer/target/release/openmouse-installer.exe release/OpenMouseDesktopSetup.exe
+          node .github/scripts/make-release-files.mjs "$TAG" release/OpenMouseDesktopSetup.exe "$GITHUB_REPOSITORY" release
+          cat release/latest.json
 
       - name: Publish release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          gh release create "$TAG" OpenMouseDesktopSetup.exe \
+          gh release create "$TAG" \
+            release/OpenMouseDesktopSetup.exe release/latest.json \
             --title "OpenMouse Desktop $TAG" \
-            --notes "See Settings → Changelog in the app for details."
+            --notes-file release/notes.md \
+            --target "$GITHUB_SHA" \
+            --latest
