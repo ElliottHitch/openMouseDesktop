@@ -37,6 +37,7 @@ gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+tray-icon = { version = "0.24", default-features = false }
 raw-window-handle = "0.6"
 
 # GPUI's layout and text work is very slow unoptimized (a plain scrolling page

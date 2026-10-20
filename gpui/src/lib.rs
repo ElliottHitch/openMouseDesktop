@@ -10,6 +10,7 @@ pub mod native_window;
 pub mod overlay;
 pub mod presence_text;
 pub mod proc;
+pub mod tray;
 pub mod profiles;
 pub mod settings;
 pub mod theme;
