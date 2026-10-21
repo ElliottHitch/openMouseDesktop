@@ -11,10 +11,12 @@ on:
   pull_request:
 
 # A newer push to the same branch or PR makes an unfinished build of the older
-# one pointless, so cancel it instead of letting them pile up.
+# one pointless, so cancel it instead of letting them pile up. Never on main:
+# those builds are the ones that fill the shared cache, and a cancelled run
+# saves nothing.
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:

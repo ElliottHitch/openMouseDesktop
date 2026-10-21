@@ -67,6 +67,12 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      # A tag can point at any commit, so don't publish without the tests.
+      # Cheap now: the shared cache already holds the test build.
+      - name: Test
+        run: cargo test
+        working-directory: gpui
+
       - name: Build release binary
         run: cargo build --release
         working-directory: gpui
