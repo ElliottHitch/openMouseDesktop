@@ -32,7 +32,9 @@ mslnk = "0.1"
 [build-dependencies]
 winres = "0.1"
 
+# No LTO here: the installer is a small dialog, and fat LTO over the whole GPUI
+# dependency tree was the slowest step of every build for a few percent of size.
 [profile.release]
-lto = true
-codegen-units = 1
+lto = false
+codegen-units = 16
 strip = true
