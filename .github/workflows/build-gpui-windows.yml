@@ -10,6 +10,12 @@ on:
     branches: [main, gpui]
   pull_request:
 
+# A newer push to the same branch or PR makes an unfinished build of the older
+# one pointless, so cancel it instead of letting them pile up.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
@@ -23,9 +29,15 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # The installer is its own cargo workspace with its own target folder,
+      # so it needs its own cache entry. `shared-key` lets release.yml reuse
+      # what this builds.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: gpui
+          workspaces: |
+            gpui
+            gpui/installer
+          shared-key: windows
 
       # gpui/build.rs bundles the protocol drivers with esbuild, so the root
       # node_modules must exist first.

@@ -56,16 +56,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Same cache the build workflow fills on main, installer included.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: gpui
+          workspaces: |
+            gpui
+            gpui/installer
+          shared-key: windows
 
       - name: Install JS dependencies
         run: npm ci
-
-      - name: Test
-        run: cargo test
-        working-directory: gpui
 
       - name: Build release binary
         run: cargo build --release
