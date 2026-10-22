@@ -400,6 +400,114 @@ const GENERIC: GenericSpec[] = [
 
 const titleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
+/**
+ * Hall-effect primary buttons (G-Wolves, Lamzu): where the click registers,
+ * rapid trigger, and which switch each button uses. `mag.<field>.<button>`,
+ * with button 0 the left and 1 the right.
+ */
+function magneticControls(s: any): Section[] {
+  const m = s.magneticButtons;
+  if (!m || !Array.isArray(m.buttons) || m.buttons.length === 0) return [];
+  const rtUnit = m.rapidTriggerUnit === "ms" ? "ms" : undefined;
+  return m.buttons.map((b: any, i: number): Section => {
+    const controls: Control[] = [];
+    if (m.canChooseSwitchType && b.switchType) {
+      controls.push({
+        id: `mag.switch.${i}`,
+        label: "Switch",
+        description: "Magnetic needs a calibrated mouse.",
+        kind: "choice",
+        options: [{ value: "magnetic", label: "Magnetic" }, { value: "optical", label: "Optical" }],
+        current: b.switchType,
+      });
+    }
+    if (b.triggerPoint != null && m.triggerPointRange) {
+      controls.push({
+        id: `mag.trigger.${i}`,
+        label: "Trigger point",
+        description: "How far the button travels before it clicks. Lower is lighter.",
+        kind: "number",
+        min: m.triggerPointRange.min,
+        max: m.triggerPointRange.max,
+        step: 1,
+        current: b.triggerPoint,
+      });
+    }
+    if (m.releasePointRange) {
+      controls.push({
+        id: `mag.release.${i}`,
+        label: "Release point",
+        description: "How far the button travels back before it releases.",
+        kind: "number",
+        min: m.releasePointRange.min,
+        max: m.releasePointRange.max,
+        step: 1,
+        current: b.releasePoint ?? b.triggerPoint ?? m.releasePointRange.min,
+      });
+    }
+    if (m.rapidTriggerRange) {
+      const on = b.rapidTriggerEnabled ?? (b.rapidTrigger != null && b.rapidTrigger > 0);
+      controls.push({ id: `mag.rtOn.${i}`, label: "Rapid trigger", description: "Re-clicks the moment the button moves back up.", kind: "toggle", current: Boolean(on) });
+      if (on) {
+        controls.push({
+          id: `mag.rt.${i}`,
+          label: "Rapid trigger sensitivity",
+          kind: "number",
+          min: m.rapidTriggerRange.min,
+          max: m.rapidTriggerRange.max,
+          step: 1,
+          unit: rtUnit,
+          current: b.rapidTrigger ?? m.rapidTriggerRange.min,
+        });
+      }
+    } else if (m.rapidTriggerSwitch === false || b.rapidTrigger != null) {
+      controls.push({ id: `mag.info.rt${i}`, label: "Rapid trigger", description: "Can only be changed with the mouse on its cable.", kind: "info", current: b.rapidTriggerEnabled ? "On" : "Off" });
+    }
+    return { title: m.buttons.length === 2 ? `${i === 0 ? "Left" : "Right"} button` : `Button ${i + 1}`, controls };
+  }).filter((section: Section) => section.controls.length > 0);
+}
+
+/** Writes one magnetic control; the driver confirms by reading the value back. */
+async function writeMagnetic(info: HidInterfaceInfo, status: any, id: string, value: any) {
+  const [, field, rawButton] = id.split(".");
+  const button = Number(rawButton) as 0 | 1;
+  const m = status.magneticButtons;
+  const b = m?.buttons?.[button];
+  if (!m || !b) throw new Error("This mouse's button settings aren't loaded yet.");
+  const min = m.rapidTriggerRange?.min ?? 1;
+  switch (field) {
+    case "trigger":
+      await callClientMethod(info, "setMagneticTriggerPoint", button, Math.round(Number(value)));
+      b.triggerPoint = Math.round(Number(value));
+      return;
+    case "release":
+      await callClientMethod(info, "setMagneticReleasePoint", button, Math.round(Number(value)));
+      b.releasePoint = Math.round(Number(value));
+      return;
+    case "rtOn": {
+      const level = b.rapidTrigger != null && b.rapidTrigger >= min ? b.rapidTrigger : min;
+      await callClientMethod(info, "setMagneticRapidTrigger", button, Boolean(value), level);
+      b.rapidTriggerEnabled = Boolean(value);
+      b.rapidTrigger = level;
+      return;
+    }
+    case "rt":
+      await callClientMethod(info, "setMagneticRapidTrigger", button, true, Math.round(Number(value)));
+      b.rapidTriggerEnabled = true;
+      b.rapidTrigger = Math.round(Number(value));
+      return;
+    case "switch": {
+      const types = m.buttons.map((x: any) => x.switchType);
+      types[button] = String(value);
+      await callClientMethod(info, "setMagneticSwitchTypes", types);
+      b.switchType = String(value);
+      return;
+    }
+    default:
+      throw new Error(`Unknown magnetic control ${id}`);
+  }
+}
+
 function genericFeatures(status: any): Section[] {
   const sections = new Map<string, Control[]>();
   for (const spec of GENERIC) {
@@ -470,7 +578,14 @@ function withCurrent(steps: readonly number[], current: number | null | undefine
  * field the driver reports, minus whatever the driver's own `ui` hints hide — and
  * all of them apply immediately, as they do there.
  */
-function performanceExtras(status: any, caps: DeviceCapabilities): Section[] {
+/** Brands whose drivers implement `setAngleTuning` (the others only report the angle). */
+const ANGLE_TUNING_WRITERS = new Set(["MCHOSE", "Pulsar", "WLMouse"]);
+
+function canWriteAngleTuning(brand: string, status: any): boolean {
+  return ANGLE_TUNING_WRITERS.has(brand) || status.mockAngleTuningWritable === true;
+}
+
+function performanceExtras(brand: string, status: any, caps: DeviceCapabilities): Section[] {
   const ui = status.ui ?? {};
   const c: Control[] = [];
 
@@ -498,6 +613,22 @@ function performanceExtras(status: any, caps: DeviceCapabilities): Section[] {
         c.push({ id: `perf.${t.key}`, label: t.label, description: t.description, kind: "toggle", current: status[t.key] });
       }
     }
+  }
+
+  // Rotates the sensor's idea of "straight", in whole degrees; the driver checks
+  // its own limits when written. Only some drivers that report it can write it.
+  if (typeof status.angleTuning === "number" && canWriteAngleTuning(brand, status)) {
+    c.push({
+      id: "perf.angleTuning",
+      label: "Angle tuning",
+      description: "Rotates the sensor to correct for how you hold the mouse. 0° is off.",
+      kind: "number",
+      min: -30,
+      max: 30,
+      step: 1,
+      unit: "°",
+      current: status.angleTuning,
+    });
   }
 
   if (Array.isArray(status.dpiStages) && status.dpiStages.length > 1) {
@@ -590,8 +721,8 @@ function performanceExtras(status: any, caps: DeviceCapabilities): Section[] {
 export function describeControls(brand: string, status: any, caps: DeviceCapabilities) {
   return {
     buttons: [...razerAndEgg(brand, status), ...genericButtons(status)],
-    advanced: [...advanced(status, brand), ...hits(status, brand), ...extras(status), ...genericFeatures(status), ...deviceInfo(status)],
-    performance: performanceExtras(status, caps),
+    advanced: [...advanced(status, brand), ...hits(status, brand), ...magneticControls(status), ...extras(status), ...genericFeatures(status), ...deviceInfo(status)],
+    performance: performanceExtras(brand, status, caps),
     lighting: status.lighting ?? null,
   };
 }
@@ -637,6 +768,7 @@ export async function writeControl(info: HidInterfaceInfo, status: any, id: stri
   // The shared remapper: the button's display label is the part after the slash.
   if (id.startsWith("gen.button/")) return w.setButtonMapping(info, id.slice("gen.button/".length), value);
   if (id.startsWith("hits.")) return writeHits(info, status, id, value);
+  if (id.startsWith("mag.") && !id.startsWith("mag.info.")) return writeMagnetic(info, status, id, value);
   // Table-driven generic setting: `gen.set/<field>/<method>`.
   if (id.startsWith("gen.set/")) return callClientMethod(info, id.split("/")[2], value);
   const [family, kind, rest] = id.split(".");
@@ -723,6 +855,7 @@ export async function writeControl(info: HidInterfaceInfo, status: any, id: stri
     case "perf.sleep": return w.setSleepTimeout(info, Number(value));
     case "perf.motionSync": return w.setMotionSync(info, Boolean(value));
     case "perf.angleSnapping": return w.setAngleSnapping(info, Boolean(value));
+    case "perf.angleTuning": await callClientMethod(info, "setAngleTuning", Math.round(Number(value))); status.angleTuning = Math.round(Number(value)); return;
     case "perf.rippleControl": return w.setRippleControl(info, Boolean(value));
     case "perf.performanceMode": return w.setPerformanceMode(info, Boolean(value));
     case "perf.dpiStage": return w.setActiveDpiStage(info, Number(value));

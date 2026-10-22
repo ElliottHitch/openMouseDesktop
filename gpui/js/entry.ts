@@ -146,9 +146,10 @@ const mockWanted = (): string => String((globalThis as any).__mock ?? "");
       const status = lastStatus.get(key) ?? {};
       const id = action.slice("control:".length);
       await writeControl(info, status, id, value);
-      // A few controls decide which others are shown (an Starlight X switch in
-      // TMR mode gains its analog settings); their write returns the new layout.
-      if (id.startsWith("slx.mode") || id === "slx.link" || id === "hits.link") return JSON.stringify({ tabs: describeControls(brand, status, lastCaps.get(key)) });
+      // A few controls decide which others are shown (a Starlight X switch in
+      // TMR mode gains its analog settings, a magnetic button's rapid trigger its
+      // sensitivity); their write returns the new layout.
+      if (id.startsWith("slx.mode") || id === "slx.link" || id === "hits.link" || id.startsWith("mag.rtOn.")) return JSON.stringify({ tabs: describeControls(brand, status, lastCaps.get(key)) });
       return JSON.stringify(value);
     }
     if (action === "lighting") {
