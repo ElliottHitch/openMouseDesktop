@@ -63,7 +63,6 @@ fn main() {
         if openmouse_gpui::autostart::launched_by_os() {
             let _ = cx.update_window(handle, |_, window, _| {
                 if has_tray {
-                    #[cfg(windows)]
                     openmouse_gpui::tray::hide(window);
                 } else {
                     window.minimize_window();

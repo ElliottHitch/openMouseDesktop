@@ -8,7 +8,9 @@ use std::process::Command;
 fn main() {
     // 16 MiB main-thread stack (Windows default is 1 MiB): a debug build of the
     // device page (dozens of controls in nested flex rows) overflows 1 MiB.
-    println!("cargo:rustc-link-arg-bins=/STACK:16777216");
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-bins=/STACK:16777216");
+    }
     println!("cargo:rerun-if-changed=js");
     println!("cargo:rerun-if-changed=js/build.mjs");
     println!("cargo:rerun-if-changed=js/shims");

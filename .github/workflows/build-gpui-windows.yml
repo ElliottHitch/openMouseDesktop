@@ -50,15 +50,19 @@ jobs:
         run: cargo test
         working-directory: gpui
 
-      - name: Build release binary
-        run: cargo build --release
+      # The faster `ci` profile (no LTO, see gpui/Cargo.toml); releases use
+      # the full `release` profile.
+      - name: Build app
+        run: cargo build --profile ci
         working-directory: gpui
 
-      # Needs the app's release .exe to exist first: its build.rs embeds
-      # those bytes as the installer's payload (see gpui/installer/build.rs).
+      # Needs the app's .exe to exist first: its build.rs embeds those bytes
+      # as the installer's payload (see gpui/installer/build.rs).
       - name: Build installer
         run: cargo build --release
         working-directory: gpui/installer
+        env:
+          OPENMOUSE_GPUI_EXE: ../target/ci/openmouse-gpui.exe
 
       - name: Rename installer artifact
         run: cp gpui/installer/target/release/openmouse-installer.exe OpenMouseDesktopSetup.exe
