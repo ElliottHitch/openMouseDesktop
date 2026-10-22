@@ -71,6 +71,7 @@ const mockMag = () => ({
   supportedPollingRates: [500, 1000, 2000, 4000],
   activeProfile: 1,
   angleTuning: 5,
+  mockAngleTuningWritable: true,
   magneticButtons: {
     buttons: [
       { switchType: "magnetic", triggerPoint: 3, releasePoint: 3, rapidTrigger: 4, rapidTriggerEnabled: true },

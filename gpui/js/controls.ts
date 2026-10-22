@@ -578,7 +578,14 @@ function withCurrent(steps: readonly number[], current: number | null | undefine
  * field the driver reports, minus whatever the driver's own `ui` hints hide — and
  * all of them apply immediately, as they do there.
  */
-function performanceExtras(status: any, caps: DeviceCapabilities): Section[] {
+/** Brands whose drivers implement `setAngleTuning` (the others only report the angle). */
+const ANGLE_TUNING_WRITERS = new Set(["MCHOSE", "Pulsar", "WLMouse"]);
+
+function canWriteAngleTuning(brand: string, status: any): boolean {
+  return ANGLE_TUNING_WRITERS.has(brand) || status.mockAngleTuningWritable === true;
+}
+
+function performanceExtras(brand: string, status: any, caps: DeviceCapabilities): Section[] {
   const ui = status.ui ?? {};
   const c: Control[] = [];
 
@@ -608,9 +615,9 @@ function performanceExtras(status: any, caps: DeviceCapabilities): Section[] {
     }
   }
 
-  // Rotates the sensor's idea of "straight". Every driver that reports it takes
-  // whole degrees and checks its own limits when written.
-  if (typeof status.angleTuning === "number") {
+  // Rotates the sensor's idea of "straight", in whole degrees; the driver checks
+  // its own limits when written. Only some drivers that report it can write it.
+  if (typeof status.angleTuning === "number" && canWriteAngleTuning(brand, status)) {
     c.push({
       id: "perf.angleTuning",
       label: "Angle tuning",
@@ -715,7 +722,7 @@ export function describeControls(brand: string, status: any, caps: DeviceCapabil
   return {
     buttons: [...razerAndEgg(brand, status), ...genericButtons(status)],
     advanced: [...advanced(status, brand), ...hits(status, brand), ...magneticControls(status), ...extras(status), ...genericFeatures(status), ...deviceInfo(status)],
-    performance: performanceExtras(status, caps),
+    performance: performanceExtras(brand, status, caps),
     lighting: status.lighting ?? null,
   };
 }
