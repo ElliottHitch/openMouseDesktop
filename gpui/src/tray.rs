@@ -1,62 +1,110 @@
 //! System tray: closing the main window hides it to a tray icon instead of
 //! quitting, and the icon brings it back. Quitting is the tray menu's job.
 //!
-//! Windows only for now; elsewhere [`install`] does nothing and closing the
-//! window quits as before.
+//! Windows and macOS (menu bar); elsewhere [`install`] does nothing and closing
+//! the window quits as before.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod imp {
     use futures::channel::mpsc;
     use futures::StreamExt as _;
     use gpui_kit::{AnyWindowHandle, App, AppContext as _, Window};
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-    use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     use crate::activity::ACTIVITY;
-
-    #[link(name = "user32")]
-    extern "system" {
-        fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
-        fn SetForegroundWindow(hwnd: isize) -> i32;
-    }
-
-    const SW_HIDE: i32 = 0;
-    /// Shows a hidden window and un-minimizes a minimized one.
-    const SW_RESTORE: i32 = 9;
-    /// The app icon `build.rs` embeds as the exe's first icon resource.
-    const APP_ICON_RESOURCE: u16 = 1;
 
     enum Command {
         Show,
         Quit,
     }
 
-    fn hwnd_of(window: &Window) -> Option<isize> {
-        match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
-            Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
-            _ => None,
+    #[cfg(windows)]
+    mod platform {
+        use gpui_kit::Window;
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use tray_icon::Icon;
+
+        #[link(name = "user32")]
+        extern "system" {
+            fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
+            fn SetForegroundWindow(hwnd: isize) -> i32;
+        }
+
+        const SW_HIDE: i32 = 0;
+        /// Shows a hidden window and un-minimizes a minimized one.
+        const SW_RESTORE: i32 = 9;
+        /// The app icon `build.rs` embeds as the exe's first icon resource.
+        const APP_ICON_RESOURCE: u16 = 1;
+
+        fn hwnd_of(window: &Window) -> Option<isize> {
+            match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
+                Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
+                _ => None,
+            }
+        }
+
+        pub fn icon() -> Option<Icon> {
+            Icon::from_resource(APP_ICON_RESOURCE, Some((32, 32))).ok()
+        }
+
+        /// Hides the window and its taskbar button.
+        pub fn hide_window(window: &Window) {
+            if let Some(hwnd) = hwnd_of(window) {
+                unsafe {
+                    ShowWindow(hwnd, SW_HIDE);
+                }
+            }
+        }
+
+        pub fn show_window(window: &mut Window) {
+            if let Some(hwnd) = hwnd_of(window) {
+                unsafe {
+                    ShowWindow(hwnd, SW_RESTORE);
+                    SetForegroundWindow(hwnd);
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    mod platform {
+        use cocoa::base::{id, nil};
+        use gpui_kit::Window;
+        use objc::{class, msg_send, sel, sel_impl};
+        use tray_icon::Icon;
+
+        pub fn icon() -> Option<Icon> {
+            let image = image::load_from_memory(include_bytes!("../assets/logo.png")).ok()?.into_rgba8();
+            let (width, height) = image.dimensions();
+            Icon::from_rgba(image.into_raw(), width, height).ok()
+        }
+
+        /// Hides the whole app (like Cmd+H); the menu bar icon stays.
+        pub fn hide_window(_window: &Window) {
+            unsafe {
+                let app: id = msg_send![class!(NSApplication), sharedApplication];
+                let _: () = msg_send![app, hide: nil];
+            }
+        }
+
+        pub fn show_window(_window: &mut Window) {
+            unsafe {
+                let app: id = msg_send![class!(NSApplication), sharedApplication];
+                let _: () = msg_send![app, unhide: nil];
+            }
         }
     }
 
     /// Hides the window (no taskbar button either) and tells the background
     /// loops nobody is looking.
     pub fn hide(window: &Window) {
-        if let Some(hwnd) = hwnd_of(window) {
-            unsafe {
-                ShowWindow(hwnd, SW_HIDE);
-            }
-        }
+        platform::hide_window(window);
         ACTIVITY.set_active(false);
     }
 
     fn show(window: &mut Window) {
-        if let Some(hwnd) = hwnd_of(window) {
-            unsafe {
-                ShowWindow(hwnd, SW_RESTORE);
-                SetForegroundWindow(hwnd);
-            }
-        }
+        platform::show_window(window);
         window.activate_window();
         ACTIVITY.set_active(true);
     }
@@ -64,7 +112,7 @@ mod imp {
     /// Creates the tray icon and makes closing `window` hide it. Returns
     /// whether the tray exists; without one, closing still quits.
     pub fn install(cx: &mut App, window: AnyWindowHandle) -> bool {
-        let Ok(icon) = Icon::from_resource(APP_ICON_RESOURCE, Some((32, 32))) else {
+        let Some(icon) = platform::icon() else {
             return false;
         };
         let open = MenuItem::with_id("open", "Open OpenMouse", true, None);
@@ -132,10 +180,13 @@ mod imp {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub use imp::{hide, install};
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn install(_cx: &mut gpui_kit::App, _window: gpui_kit::AnyWindowHandle) -> bool {
     false
 }
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn hide(_window: &gpui_kit::Window) {}

@@ -1,0 +1,56 @@
+name: Build (macOS)
+
+# Builds and tests the native GPUI app (gpui/) on macOS and uploads an
+# ad-hoc-signed OpenMouse.dmg so any push can be downloaded and tried. Same
+# triggers as the Windows build. Not yet part of release.yml.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, gpui]
+  pull_request:
+
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gpui
+          shared-key: macos
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Test
+        run: cargo test
+        working-directory: gpui
+
+      # The faster `ci` profile (no LTO, see gpui/Cargo.toml).
+      - name: Build app
+        run: cargo build --profile ci
+        working-directory: gpui
+
+      - name: Bundle OpenMouse.app
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' gpui/Cargo.toml | head -1)
+          mkdir dist
+          .github/scripts/make-macos-app.sh gpui/target/ci/openmouse-gpui "$version" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openmouse-macos
+          path: dist/OpenMouse.dmg
+          if-no-files-found: error

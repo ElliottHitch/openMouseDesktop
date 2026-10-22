@@ -27,6 +27,7 @@ openmouse-presence = { version = "0.0.1", path = "../crates/openmouse-presence" 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "=0.25.0"
 objc = "=0.2.7"
+tray-icon = { version = "0.24", default-features = false }
 
 [dev-dependencies]
 gpui-kit = "=0.7.3"
@@ -53,3 +54,11 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# Pull-request and main builds only need to prove the app compiles and give
+# testers a binary, so skip the whole-program LTO and single codegen unit that
+# make `release` slow. Tagged releases still use `release`.
+[profile.ci]
+inherits = "release"
+lto = false
+codegen-units = 16
