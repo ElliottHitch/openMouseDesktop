@@ -47,4 +47,6 @@ PLIST
 # substitute for a Developer ID signature and notarization.
 codesign --force --deep --sign - "$app"
 
-hdiutil create -volname "OpenMouse" -srcfolder "$app" -ov -format UDZO "$out/OpenMouse.dmg" >/dev/null
+mkdir "$work/dmg-root"
+cp -R "$app" "$work/dmg-root/"
+hdiutil create -volname "OpenMouse" -srcfolder "$work/dmg-root" -ov -format UDZO "$out/OpenMouse.dmg" >/dev/null
