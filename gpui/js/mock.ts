@@ -1,5 +1,5 @@
 // A fake Finalmouse Starlight X for looking at the UI without hardware
-// (OPENMOUSE_MOCK=slx, ulx or x3; a trailing "!" hides the real devices). Nothing here talks to a device: writes are accepted
+// (OPENMOUSE_MOCK=slx, ulx, x3 or mag; a trailing "!" hides the real devices). Nothing here talks to a device: writes are accepted
 // and only the in-memory status changes.
 
 export const isMockKey = (key: string) => key.startsWith("mock:");
@@ -14,15 +14,19 @@ export const mockCandidates = (wanted: string) => [
     info: { key: "mock:ulx", vendorId: 0x361d, productId: 0x0100, productString: "Finalmouse UltralightX (mock)", manufacturerString: "Finalmouse", collections: [] },
     brands: ["Finalmouse"],
   }] : []),
+  ...(wanted.includes("mag") ? [{
+    info: { key: "mock:mag", vendorId: 0x373b, productId: 0x1000, productString: "Magnetic mouse (mock)", manufacturerString: "Lamzu", collections: [] },
+    brands: ["Lamzu"],
+  }] : []),
   ...(wanted.includes("x3") ? [{
     info: { key: "mock:x3", vendorId: 0x046d, productId: 0xc0a9, productString: "PRO X 3 Superstrike (mock)", manufacturerString: "Logitech", collections: [] },
     brands: ["Logitech"],
   }] : []),
 ];
 
-export const mockBrand = (key: string) => (key === "mock:x3" ? "Logitech" : "Finalmouse");
+export const mockBrand = (key: string) => (key === "mock:x3" ? "Logitech" : key === "mock:mag" ? "Lamzu" : "Finalmouse");
 
-export const mockStatus = (key: string) => (key === "mock:x3" ? mockX3() : key === "mock:ulx" ? mockUlx() : mockSlx());
+export const mockStatus = (key: string) => (key === "mock:x3" ? mockX3() : key === "mock:mag" ? mockMag() : key === "mock:ulx" ? mockUlx() : mockSlx());
 
 // Ultralight X as FinalmouseHidClient.readStatus() reports it: the whole
 // polling ladder and Motion Sync are adjustable, lift-off is the legacy 1/2 mm
@@ -51,6 +55,36 @@ const mockUlx = () => ({
   finalmouseTournamentScrollMode: 0,
   finalmouseTournamentScrollTimeoutMs: 500,
   firmware: ["Mouse 1.0.8", "Dongle RF 1.0.3", "Dongle USB 1.0.5"],
+});
+
+// A Hall-effect mouse as the Lamzu driver reports it: per-button trigger and
+// release travel, rapid trigger in ms with no switch of its own, selectable
+// switch type, and a sensor angle.
+const mockMag = () => ({
+  brand: "Lamzu",
+  name: "Magnetic mouse",
+  batteryPercent: 77,
+  batteryState: "Discharging",
+  connectionType: "Wireless",
+  dpi: 1600,
+  pollingRateHz: 1000,
+  supportedPollingRates: [500, 1000, 2000, 4000],
+  activeProfile: 1,
+  angleTuning: 5,
+  magneticButtons: {
+    buttons: [
+      { switchType: "magnetic", triggerPoint: 3, releasePoint: 3, rapidTrigger: 4, rapidTriggerEnabled: true },
+      { switchType: "magnetic", triggerPoint: 5, releasePoint: null, rapidTrigger: null, rapidTriggerEnabled: false },
+    ],
+    triggerPointRange: { min: 1, max: 10 },
+    releasePointRange: { min: 1, max: 10 },
+    rapidTriggerRange: { min: 1, max: 15 },
+    rapidTriggerUnit: "ms",
+    rapidTriggerSwitch: false,
+    canChooseSwitchType: true,
+    calibration: "calibrated",
+    liveDepth: false,
+  },
 });
 
 const mockX3 = () => ({
