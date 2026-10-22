@@ -18,7 +18,11 @@ fn main() {
         // Tauri parity: `decorations: false` — hide the native macOS bar so
         // Kit's custom `TitleBar` owns the top strip (drag, double-click
         // zoom, traffic lights), instead of rendering underneath it.
+        // Three quarters of the screen in each direction, centered on it.
+        let screen = cx.primary_display().map(|display| display.bounds().size).unwrap_or(size(px(1467.), px(960.)));
+        let window_size = size(screen.width * 0.75, screen.height * 0.75);
         let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, window_size, cx))),
             window_min_size: Some(size(px(720.), px(500.))),
             // Native compositor backdrop; scene tint supplies surface alpha.
             window_background: WindowBackgroundAppearance::Transparent,
