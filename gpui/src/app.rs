@@ -17,7 +17,7 @@ use std::time::Duration;
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Background art: a static ASCII density ramp painted behind the shell.
-/// Deterministic (no RNG, no animation), and only regenerated when the
+/// Static (no animation), seeded once per launch, and only regenerated when the
 /// window's character grid changes size.
 const ASCII_RAMP: &[u8] = b" .:-=+*x#%@";
 /// Cell width as a fraction of the font size. Monospace advances run from
@@ -102,18 +102,34 @@ fn ascii_dither(x: usize, y: usize) -> f32 {
     (52.982_92 * ((0.067_110_56 * x as f32 + 0.005_837_15 * y as f32).fract())).fract()
 }
 
+/// Where in the noise field this launch samples, so the clouds differ every
+/// time the app starts. Fixed for the life of the process: resizing the window
+/// regenerates the grid and must not make the pattern jump.
+fn ascii_seed() -> (f32, f32) {
+    static SEED: std::sync::OnceLock<(f32, f32)> = std::sync::OnceLock::new();
+    *SEED.get_or_init(|| {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as u32);
+        let hash = |salt: i32| ascii_hash(nanos as i32, salt) * 1000.0;
+        (hash(1), hash(2))
+    })
+}
+
 /// Build one character row per screen row. Density is highest at the
 /// top-right corner and falls away toward the bottom-left; fractal noise
 /// breaks the gradient into cloud-like contours instead of a clean radial.
+/// The noise is offset by [`ascii_seed`], so each launch gets its own clouds.
 fn ascii_background_rows(cols: usize, rows: usize) -> Vec<SharedString> {
     let last = (ASCII_RAMP.len() - 1) as f32;
+    let (seed_x, seed_y) = ascii_seed();
     let mut out = Vec::with_capacity(rows);
     for y in 0..rows {
         let v = (y as f32 + 0.5) / rows as f32;
         let mut line = String::with_capacity(cols);
         for x in 0..cols {
             let u = (x as f32 + 0.5) / cols as f32;
-            let cloud = ascii_fbm(x as f32 * 0.07, y as f32 * 0.14);
+            let cloud = ascii_fbm(x as f32 * 0.07 + seed_x, y as f32 * 0.14 + seed_y);
             let t = (ascii_falloff(u, v) * (0.3 + 1.2 * cloud)).clamp(0.0, 1.0).powf(1.25);
             let dithered = t * last + (ascii_dither(x, y) - 0.5) * 0.9;
             let index = dithered.round().clamp(0.0, last) as usize;
@@ -1891,16 +1907,17 @@ impl AppView {
                     .gap_4()
                     .items_center()
                     .justify_between()
-                    .p_5()
-                    .mt_4()
+                    .p_6()
+                    .mt_5()
                     .rounded_xl()
                     .border_1()
-                    .border_color(c.border)
+                    .border_color(Hsla { a: 0.35, ..c.accent })
+                    .bg(Hsla { a: 0.06, ..c.accent })
                     .child(
                         div()
                             .flex()
                             .flex_col()
-                            .gap_1()
+                            .gap_1p5()
                             .child(div().text_xs().text_color(c.muted).child("OpenMouse Desktop"))
                             .child(
                                 h_flex()
@@ -1913,13 +1930,21 @@ impl AppView {
                     )
                     .children(check_button.take())
                     .into_any_element(),
-                2 => div().pt_6().pb_1().text_base().font_weight(FontWeight::SEMIBOLD).text_color(c.fg).child("Release notes").into_any_element(),
+                2 => div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .pt_8()
+                    .pb_1()
+                    .child(div().text_base().font_weight(FontWeight::SEMIBOLD).text_color(c.fg).child("Release notes"))
+                    .children(entries.is_empty().then(|| div().text_sm().text_color(c.muted).child("No release notes yet.")))
+                    .into_any_element(),
                 n => match entries.get(n - UPDATES_LEADING_ROWS) {
-                    Some(entry) => release_row(entry, n > UPDATES_LEADING_ROWS, entry.version == APP_VERSION, c),
+                    Some(entry) => release_row(entry, entry.version == APP_VERSION, c),
                     None => div().into_any_element(),
                 },
             };
-            div().w_full().px_4().pt_2().child(div().max_w(px(880.)).child(body)).into_any_element()
+            div().w_full().px_4().pt_3().child(div().max_w(px(960.)).child(body)).into_any_element()
         })
         .size_full()
         .into_any_element()
@@ -4597,11 +4622,11 @@ struct PageColors {
     border: Hsla,
 }
 
-/// One release on the Updates timeline. Plain text and a divider — no per-line
-/// badges or translucent cards, so each row is cheap to lay out.
-fn release_row(entry: &crate::changelog::Entry, divider: bool, current: bool, c: PageColors) -> AnyElement {
+/// One release on the Updates page, as a card; the running version is tinted.
+/// The list is virtualized, so only the rows in view are ever laid out.
+fn release_row(entry: &crate::changelog::Entry, current: bool, c: PageColors) -> AnyElement {
     use crate::changelog::{display_date, grouped, Kind};
-    let mut changes = div().flex().flex_col().gap_3().flex_1().min_w_0();
+    let mut changes = div().flex().flex_col().gap_4().flex_1().min_w_0();
     for (kind, lines) in grouped(entry) {
         let (label, tone) = match kind {
             Some(Kind::New) => ("New", c.accent),
@@ -4609,16 +4634,19 @@ fn release_row(entry: &crate::changelog::Entry, divider: bool, current: bool, c:
             Some(Kind::Fixed) => ("Fixed", c.muted),
             None => ("Changes", c.muted),
         };
-        let mut group = div().flex().flex_col().gap_1p5().child(
-            div().text_xs().font_weight(FontWeight::BOLD).text_color(tone).child(label.to_uppercase()),
-        );
+        // The badge's dot and fill take the tone; its text stays readable.
+        let mut group = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(div().flex().child(accent_badge(label, tone, c.fg)));
         for line in lines {
             group = group.child(
                 h_flex()
-                    .gap_2()
+                    .gap_3()
                     .items_start()
-                    .child(div().text_sm().text_color(c.muted).child("•"))
-                    .child(div().flex_1().min_w_0().text_sm().text_color(c.fg).child(line.to_string())),
+                    .child(div().mt(px(7.)).size(px(5.)).flex_none().rounded_full().bg(Hsla { a: 0.7, ..tone }))
+                    .child(div().flex_1().min_w_0().text_sm().line_height(relative(1.5)).text_color(c.fg).child(line.to_string())),
             );
         }
         changes = changes.child(group);
@@ -4626,8 +4654,11 @@ fn release_row(entry: &crate::changelog::Entry, divider: bool, current: bool, c:
     h_flex()
         .gap_8()
         .items_start()
-        .py_5()
-        .when(divider, |row| row.border_t_1().border_color(c.border))
+        .p_5()
+        .rounded_xl()
+        .border_1()
+        .border_color(if current { Hsla { a: 0.5, ..c.accent } } else { c.border })
+        .bg(if current { Hsla { a: 0.05, ..c.accent } } else { Hsla { a: 0.03, ..c.fg } })
         .child(
             div()
                 .w(px(132.))

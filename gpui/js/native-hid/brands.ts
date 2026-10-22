@@ -37,6 +37,13 @@ export interface BrandedCandidate {
   preferredCollection?: { usagePage: number; usage: number };
 }
 
+/**
+ * Brands the library has a driver for that this app does not offer yet. Their
+ * devices are not listed and no driver is tried on them. Remove a name here to
+ * bring the brand back.
+ */
+const HIDDEN_BRANDS = new Set(["Wooting"]);
+
 /** Every vendor id the protocol library knows about, for a single HID scan. */
 export function allKnownVendorIds(): number[] {
   return [
@@ -99,7 +106,7 @@ function preferredCollectionFor(
  */
 export function candidatesForVendorId(vendorId: number, productId: number): BrandedCandidate[] {
   const preferredCollection = preferredCollectionFor(vendorId, productId);
-  return DEVICE_DRIVERS.map((driver) => ({
+  return DEVICE_DRIVERS.filter((driver) => !HIDDEN_BRANDS.has(driver.brand)).map((driver) => ({
     brand: driver.brand,
     create: driver.create as unknown as (device: HIDDevice) => SupportedClient | null,
     score: driver.score,
