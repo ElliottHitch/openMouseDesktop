@@ -13,6 +13,8 @@ pub mod proc;
 pub mod tray;
 pub mod profiles;
 pub mod settings;
+#[cfg(windows)]
+pub mod single_instance;
 pub mod supported_devices;
 pub mod theme;
 pub mod update_check;

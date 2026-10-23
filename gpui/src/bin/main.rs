@@ -12,6 +12,18 @@ fn main() {
         openmouse_gpui::supported_devices::write(&path);
         return;
     }
+    #[cfg(windows)]
+    let _instance = match openmouse_gpui::single_instance::acquire() {
+        Ok(Some(instance)) => instance,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("Could not start OpenMouse Desktop: {error}");
+            std::process::exit(1);
+        }
+    };
+    if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+        eprintln!("[startup] pid={} config_dir={:?} cache_dir={:?}", std::process::id(), dirs::config_dir(), dirs::cache_dir());
+    }
     application().with_assets(assets::AllAssets).run(|cx| {
         init(cx);
 
@@ -74,6 +86,10 @@ fn main() {
         } else {
             cx.activate(true);
         }
+        #[cfg(windows)]
+        let _ = cx.update_window(handle, |_, window, _| {
+            window.set_window_title(openmouse_gpui::single_instance::WINDOW_TITLE);
+        });
         // Apply the theme AFTER the window exists: `Theme::change/update`
         // inside the build closure runs mid-construction and poisoned first
         // render (missing titlebar, voided components).

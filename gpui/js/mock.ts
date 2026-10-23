@@ -7,19 +7,19 @@ export const isMockKey = (key: string) => key.startsWith("mock:");
 /** Which fake devices OPENMOUSE_MOCK asked for ("slx", "ulx", "x3", or a comma list). */
 export const mockCandidates = (wanted: string) => [
   ...(wanted.includes("slx") ? [{
-    info: { key: "mock:slx", vendorId: 0x361d, productId: 0x0100, productString: "Starlight X (mock)", manufacturerString: "Finalmouse", collections: [] },
+    info: { key: "mock:slx", vendorId: 0x361d, productId: 0x0100, productString: "Starlight X (mock)", manufacturerString: "Finalmouse", collections: [], interfaceCollections: [] },
     brands: ["Finalmouse"],
   }] : []),
   ...(wanted.includes("ulx") ? [{
-    info: { key: "mock:ulx", vendorId: 0x361d, productId: 0x0100, productString: "Finalmouse UltralightX (mock)", manufacturerString: "Finalmouse", collections: [] },
+    info: { key: "mock:ulx", vendorId: 0x361d, productId: 0x0100, productString: "Finalmouse UltralightX (mock)", manufacturerString: "Finalmouse", collections: [], interfaceCollections: [] },
     brands: ["Finalmouse"],
   }] : []),
   ...(wanted.includes("mag") ? [{
-    info: { key: "mock:mag", vendorId: 0x373b, productId: 0x1000, productString: "Magnetic mouse (mock)", manufacturerString: "Lamzu", collections: [] },
+    info: { key: "mock:mag", vendorId: 0x373b, productId: 0x1000, productString: "Magnetic mouse (mock)", manufacturerString: "Lamzu", collections: [], interfaceCollections: [] },
     brands: ["Lamzu"],
   }] : []),
   ...(wanted.includes("x3") ? [{
-    info: { key: "mock:x3", vendorId: 0x046d, productId: 0xc0a9, productString: "PRO X 3 Superstrike (mock)", manufacturerString: "Logitech", collections: [] },
+    info: { key: "mock:x3", vendorId: 0x046d, productId: 0xc0a9, productString: "PRO X 3 Superstrike (mock)", manufacturerString: "Logitech", collections: [], interfaceCollections: [] },
     brands: ["Logitech"],
   }] : []),
 ];

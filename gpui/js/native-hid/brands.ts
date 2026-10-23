@@ -135,12 +135,21 @@ export function candidatesForDevice(info: HidInterfaceInfo): BrandedCandidate[] 
   const all = candidatesForVendorId(info.vendorId, info.productId);
   // A driver whose predicate throws is one that cannot drive this device.
   const probe = new TauriHidDevice(info, all[0]?.preferredCollection);
+  const interfaceProbes = info.interfaceCollections.length > 0
+    ? info.interfaceCollections.map((collections) =>
+      new TauriHidDevice({ ...info, collections }, all[0]?.preferredCollection))
+    : [probe];
   const claimed = all.filter((candidate) => {
-    try {
-      return candidate.supports(probe);
-    } catch {
-      return false;
-    }
+    // Razer predicates require a single mouse interface. Other drivers use
+    // sibling reports to reject incompatible models sharing a product id.
+    const probes = candidate.brand === "Razer" ? interfaceProbes : [probe];
+    return probes.some((interfaceProbe) => {
+      try {
+        return candidate.supports(interfaceProbe);
+      } catch {
+        return false;
+      }
+    });
   });
   // The vendor fallback only exists for hosts that cannot read report
   // descriptors. Where collections are known, a device no driver claims is not

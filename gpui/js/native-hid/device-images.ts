@@ -154,6 +154,7 @@ const DEVICE_IMAGE_BASE_URL = "https://img.openmouse.app/";
  * entry (and its file under `public/devices/`) once its upload lands.
  */
 const LOCAL_OVERRIDES: Readonly<Record<string, string>> = {
+  "razer-deathadder-v3-pro.png": "/devices/razer-deathadder-v3-pro.png",
   "attackshark-x11.png": "/devices/attackshark-x11.png",
   "keychron-nape-pro.png": "/devices/keychron-nape-pro.png",
   "logitech-mx-master-4.png": "/devices/logitech-mx-master-4.png",
@@ -247,6 +248,7 @@ const ART_BOUNDS: Readonly<Record<string, ArtBounds>> = {
   "razer-cobra.webp": { x: 0.31, y: 0.01, w: 0.3883, h: 0.9133, aspect: 1 },
   "razer-deathadder-v2.png": { x: 0.2854, y: 0.051, w: 0.428, h: 0.8967, aspect: 1.0013 },
   "razer-deathadder-v3-hyperspeed.png": { x: 0.2855, y: 0.0729, w: 0.4291, h: 0.8543, aspect: 1.0018 },
+  "razer-deathadder-v3-pro.png": { x: 0.31, y: 0.138, w: 0.382, h: 0.724, aspect: 1 },
   "razer-deathadder-v3.png": { x: 0.31, y: 0.1367, w: 0.3833, h: 0.7267, aspect: 1 },
   "razer-deathadder-v4-pro.png": { x: 0.2828, y: 0.0905, w: 0.4344, h: 0.819, aspect: 1 },
   "razer-viper-mini.webp": { x: 0.3281, y: 0.1953, w: 0.3584, h: 0.7139, aspect: 1 },
@@ -358,6 +360,7 @@ function resolveDeviceImageFilename(key: string | null | undefined, displayName:
   if (/op1we/i.test(displayName)) return "endgame-gear-op1we.png";
   if (/\bop1\b/i.test(displayName)) return "endgame-gear-op1-8k.png";
   if (/\bviper\s*v2\s*pro\b/i.test(displayName)) return "razer-viper-v2-pro.png";
+  if (/\bviper\s*v3\s*pro\b/i.test(displayName)) return "razer-viper-v3-pro.png";
   if (/\bviper\s*mini\b/i.test(displayName)) return "razer-viper-mini.webp";
   if (/\bcobra\b/i.test(displayName)) return "razer-cobra.webp";
   if (/\bnape\s*pro\b/i.test(displayName)) return "keychron-nape-pro.png";
@@ -388,13 +391,8 @@ function resolveDeviceImageFilename(key: string | null | undefined, displayName:
   if (/\bmx\s*anywhere\s*3\b/i.test(displayName)) return "logitech-mx-anywhere-3.png";
   if (/\bmx\s*ergo\b/i.test(displayName)) return "logitech-mx-ergo-s.png";
   if (/\bdeathadder\s*v4\b/i.test(displayName)) return "razer-deathadder-v4-pro.png";
-  // DeathAdder V3 Pro and HyperSpeed are the wireless SKUs of the V3 shell —
-  // this must be checked before the plain "v3" match below, or "V3
-  // HyperSpeed" would match that first and show the *corded* V3's photo on a
-  // wireless mouse (CONFIRMED: exactly this happened before this line
-  // existed here — see the webapp's `src/ui/device-images.ts`, which already
-  // had this split).
-  if (/\bdeathadder\s*v3\s*(?:pro|hyperspeed)\b/i.test(displayName)) return "razer-deathadder-v3-hyperspeed.png";
+  if (/\bdeathadder\s*v3\s*pro\b/i.test(displayName)) return "razer-deathadder-v3-pro.png";
+  if (/\bdeathadder\s*v3\s*hyperspeed\b/i.test(displayName)) return "razer-deathadder-v3-hyperspeed.png";
   if (/\bdeathadder\s*v3\b/i.test(displayName)) return "razer-deathadder-v3.png";
   if (/\bdeathadder\s*v2\b(?!\s*x\s*hyperspeed\b)/i.test(displayName)) return "razer-deathadder-v2.png";
   if (/\bdeathadder\s*essential\b/i.test(displayName)) return "razer-deathadder-v2.png";

@@ -167,9 +167,11 @@ mod windows_hid_enumerate {
     }
 
     #[repr(C)]
+    #[cfg_attr(target_pointer_width = "32", repr(packed))]
     #[allow(non_snake_case)]
     struct SP_DEVICE_INTERFACE_DETAIL_DATA_W {
         cbSize: DWORD,
+        DevicePath: [u16; 1],
     }
 
     extern "system" {
@@ -236,10 +238,10 @@ mod windows_hid_enumerate {
                     &mut required,
                     ptr::null_mut(),
                 );
-                if required == 0 {
+                if (required as usize) < mem::size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() {
                     continue;
                 }
-                let mut buf: Vec<u8> = vec![0u8; required as usize];
+                let mut buf = vec![0u32; (required as usize).div_ceil(mem::size_of::<DWORD>())];
                 let detail = buf.as_mut_ptr() as *mut SP_DEVICE_INTERFACE_DETAIL_DATA_W;
                 (*detail).cbSize = mem::size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as DWORD;
                 if SetupDiGetDeviceInterfaceDetailW(
@@ -253,8 +255,8 @@ mod windows_hid_enumerate {
                 {
                     continue;
                 }
-                let path_ptr = buf[mem::size_of::<DWORD>()..].as_ptr() as *const u16;
-                let max_chars = (buf.len() - mem::size_of::<DWORD>()) / 2;
+                let path_ptr = (detail as *const u8).add(mem::size_of::<DWORD>()) as *const u16;
+                let max_chars = (required as usize - mem::size_of::<DWORD>()) / mem::size_of::<u16>();
                 let len = (0..max_chars)
                     .position(|i| *path_ptr.add(i) == 0)
                     .unwrap_or(max_chars);
@@ -384,13 +386,11 @@ pub struct HidInterface {
     pub product_string: String,
     #[serde(rename = "manufacturerString")]
     pub manufacturer_string: String,
-    /// This interface's HID collections and the report ids they declare, in
-    /// WebHID's own shape. `@openmouse/protocol`'s drivers match devices with
-    /// `isSupported(device)`, every one of which reads `device.collections` —
-    /// a browser populates that for free, hidapi does not, which is why
-    /// `src/native-hid/brands.ts` had to hand-copy the library's registry.
-    /// Supplying it is what lets the app read the protocols from the library.
+    /// Merged collections for protocol operations on the native group.
     pub collections: Vec<CollectionInfo>,
+    /// Complete descriptor roots per native path for driver matching.
+    #[serde(rename = "interfaceCollections")]
+    pub interface_collections: Vec<Vec<CollectionInfo>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -487,19 +487,24 @@ static DESCRIPTORS: LazyLock<Mutex<HashMap<String, Vec<CollectionInfo>>>> =
 static LAYOUTS: LazyLock<Mutex<HashMap<String, ReportLayout>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// The collections of one interface group, merged across its paths — the app
-/// presents a device's interfaces as one synthetic device (see
-/// `tauri-hid-device.ts`), so this is that device's `collections`.
+/// Keep each path's complete descriptor separate for interface-based driver matching.
 ///
 /// Best-effort: an interface whose descriptor cannot be read, or does not
 /// parse, contributes nothing, which callers treat exactly as they treat a
 /// device the protocol drivers do not recognise.
-fn interface_collections(api: &HidApi, infos: &[&hidapi::DeviceInfo]) -> Vec<CollectionInfo> {
-    let mut merged: Vec<CollectionInfo> = Vec::new();
+fn interface_collections(api: &HidApi, infos: &[&hidapi::DeviceInfo]) -> Vec<Vec<CollectionInfo>> {
+    let mut interfaces = Vec::new();
+    let mut seen_paths = HashSet::new();
     for info in infos {
         let path = info.path().to_string_lossy().into_owned();
+        let identity = if cfg!(windows) { path.to_ascii_lowercase() } else { path.clone() };
+        if !seen_paths.insert(identity) {
+            continue;
+        }
         if let Some(cached) = DESCRIPTORS.lock().get(&path) {
-            merged.extend(cached.iter().cloned());
+            if !cached.is_empty() {
+                interfaces.push(cached.clone());
+            }
             continue;
         }
         // A brief open, closed by the drop below: it is the only way to ask an
@@ -548,14 +553,17 @@ fn interface_collections(api: &HidApi, infos: &[&hidapi::DeviceInfo]) -> Vec<Col
             );
         }
         DESCRIPTORS.lock().insert(path, collections.clone());
-        merged.extend(collections);
+        if !collections.is_empty() {
+            interfaces.push(collections);
+        }
     }
-    merged
+    interfaces
 }
 
 /// Runs `f` against the shared `HidApi`, initializing it on first use and
-/// refreshing its device list (cheap — no manager teardown/recreation) on
-/// every later call. Non-exclusive open is set once, right after creation —
+/// refreshing its device list when requested. Windows opens try cached paths
+/// before refreshing; other platforms refresh before opening. Non-exclusive
+/// open is set once, right after creation —
 /// see the module docs above for why this is the actual freeze fix.
 ///
 /// `try_lock`, never `lock`: hidapi's macOS enumerator pumps the *calling
@@ -573,18 +581,30 @@ fn interface_collections(api: &HidApi, infos: &[&hidapi::DeviceInfo]) -> Vec<Col
 /// "busy" is the truth: this process is already mid-enumeration on the device.
 fn with_hid_api<T>(
     handle: &HidApiHandle,
+    _vendor_ids: &[u16],
+    refresh: bool,
     f: impl FnOnce(&mut HidApi) -> Result<T, String>,
 ) -> Result<T, String> {
+    let started = Instant::now();
     let Some(mut guard) = handle.0.try_lock() else {
         applog!("[hid] with_hid_api: re-entered while an enumeration was in flight");
         return Err(HID_BUSY.to_string());
     };
     match guard.as_mut() {
-        Some(api) => {
+        Some(api) if refresh => {
+            #[cfg(target_os = "windows")]
+            refresh_vendor_devices(api, _vendor_ids)?;
+            #[cfg(not(target_os = "windows"))]
             api.refresh_devices().map_err(|error| error.to_string())?;
         }
+        Some(_) => {}
         None => {
-            let api = HidApi::new().map_err(|error| error.to_string())?;
+            #[cfg(target_os = "windows")]
+            HidApi::disable_device_discovery();
+            #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+            let mut api = HidApi::new().map_err(|error| error.to_string())?;
+            #[cfg(target_os = "windows")]
+            refresh_vendor_devices(&mut api, _vendor_ids)?;
             // CONFIRMED on real hardware: exclusive open freezes the
             // device's own input (mouse cursor/keyboard keys) the moment
             // it's opened — reproduced even with the shortest possible
@@ -612,7 +632,20 @@ fn with_hid_api<T>(
             *guard = Some(api);
         }
     }
+    if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+        eprintln!("[startup] hid_api_ready elapsed_ms={}", started.elapsed().as_millis());
+    }
     f(guard.as_mut().expect("just initialized above"))
+}
+
+#[cfg(target_os = "windows")]
+fn refresh_vendor_devices(api: &mut HidApi, vendor_ids: &[u16]) -> Result<(), String> {
+    api.reset_devices().map_err(|error| error.to_string())?;
+    let vendors: HashSet<_> = vendor_ids.iter().copied().collect();
+    for vendor in vendors {
+        api.add_devices(vendor, 0).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 // hid_list_interfaces and hid_open stay synchronous (blocking the main
@@ -633,7 +666,8 @@ pub fn hid_list_interfaces(
     api_handle: &HidApiHandle,
     vendor_ids: Vec<u16>,
 ) -> Result<Vec<HidInterface>, String> {
-    with_hid_api(api_handle, |api| {
+    with_hid_api(api_handle, &vendor_ids, true, |api| {
+        let started = Instant::now();
         let mut groups: HashMap<(u16, u16), Vec<&hidapi::DeviceInfo>> = HashMap::new();
         for info in api.device_list() {
             if !vendor_ids.contains(&info.vendor_id()) {
@@ -682,7 +716,7 @@ pub fn hid_list_interfaces(
                     })
                     .unwrap_or_default();
                 for path in paths {
-                    if !existing.contains(path.as_str()) {
+                    if !existing.iter().any(|known| known.eq_ignore_ascii_case(path)) {
                         applog!(
                             "[hid] windows extra path for {vid:04x}:{pid:04x}: {path}"
                         );
@@ -698,9 +732,14 @@ pub fn hid_list_interfaces(
             }
         }
 
+        if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+            eprintln!("[startup] hid_paths elapsed_ms={}", started.elapsed().as_millis());
+        }
+
         let mut result: Vec<HidInterface> = groups
             .into_iter()
             .map(|((vendor_id, product_id), infos)| {
+                let descriptor_started = Instant::now();
                 let product_string = infos
                     .iter()
                     .find_map(|info| info.product_string())
@@ -711,13 +750,18 @@ pub fn hid_list_interfaces(
                     .find_map(|info| info.manufacturer_string())
                     .unwrap_or("")
                     .to_string();
+                let interface_collections = interface_collections(api, &infos);
+                if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+                    eprintln!("[startup] descriptors={vendor_id:04x}:{product_id:04x} elapsed_ms={}", descriptor_started.elapsed().as_millis());
+                }
                 HidInterface {
                     key: interface_key(vendor_id, product_id),
                     vendor_id,
                     product_id,
                     product_string,
                     manufacturer_string,
-                    collections: interface_collections(api, &infos),
+                    collections: interface_collections.iter().flatten().cloned().collect(),
+                    interface_collections,
                 }
             })
             .collect();
@@ -770,7 +814,7 @@ pub fn hid_open(
         }
     }
 
-    let devices = with_hid_api(api_handle, |api| {
+    let open = |api: &mut HidApi, _refresh: bool| {
         // `mut` looks unnecessary from a macOS build's perspective —
         // pushed into only in the #[cfg(target_os = "windows")] block
         // below, so Windows genuinely needs it mutable even though macOS
@@ -846,15 +890,20 @@ pub fn hid_open(
         // hidapi missed but SetupDi enumerated.
         #[cfg(target_os = "windows")]
         {
-            if let Some(extra) = EXTRA_WINDOWS_PATHS.lock().remove(&(vendor_id, product_id))
-            {
-                for path in &extra {
-                    if !paths.iter().any(|p| p == path) {
-                        applog!(
-                            "[hid] hid_open: extra windows path for {vendor_id:04x}:{product_id:04x}: {path}"
-                        );
-                        paths.push(path.clone());
-                    }
+            let extra = if _refresh {
+                windows_hid_enumerate::enumerate_paths(vendor_id, product_id)
+            } else {
+                EXTRA_WINDOWS_PATHS
+                    .lock()
+                    .remove(&(vendor_id, product_id))
+                    .unwrap_or_default()
+            };
+            for path in &extra {
+                if !paths.iter().any(|p| p.eq_ignore_ascii_case(path)) {
+                    applog!(
+                        "[hid] hid_open: extra windows path for {vendor_id:04x}:{product_id:04x}: {path}"
+                    );
+                    paths.push(path.clone());
                 }
             }
         }
@@ -893,7 +942,15 @@ pub fn hid_open(
         }
         applog!("[hid] hid_open: opened {} split(s)", opened.len());
         Ok(opened)
-    })?;
+    };
+    let mut refresh = cfg!(not(target_os = "windows"));
+    let devices = loop {
+        let result = with_hid_api(api_handle, &[vendor_id], refresh, |api| open(api, refresh));
+        match result {
+            Err(error) if !refresh && error != HID_BUSY => refresh = true,
+            result => break result?,
+        }
+    };
 
     let key = interface_key(vendor_id, product_id);
     // Shared across every split's reader thread for this group — see
@@ -1763,7 +1820,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let nested = Arc::clone(&handle);
         std::thread::spawn(move || {
-            let _ = sender.send(with_hid_api(&nested, |_| Ok(())));
+            let _ = sender.send(with_hid_api(&nested, &[], false, |_| Ok(())));
         });
         let outcome = receiver.recv_timeout(Duration::from_secs(5));
         drop(guard);

@@ -1,5 +1,5 @@
 use crate::games::{self, Game};
-use crate::settings::{Settings, MAX_BLUR, MAX_VIBRANCY, MIN_OPACITY};
+use crate::settings::{MouseImage, Settings, MAX_BLUR, MAX_VIBRANCY, MIN_OPACITY};
 use crate::theme::ThemeChoice;
 use gpui_kit::assets::IconName;
 use gpui_kit::base::slider::{SliderEvent, SliderState};
@@ -362,6 +362,7 @@ struct Tile {
     /// The brand to show (the product's own — see `ConnectedDevice::display_brand`).
     display_brand: String,
     art: Option<LoadedArt>,
+    art_request: u64,
     status: TileStatus,
 }
 
@@ -463,6 +464,7 @@ pub struct AppView {
     settings: Settings,
     games: Vec<Game>,
     devices: Devices,
+    art_seq: u64,
     hid: Option<crate::hid::HidService>,
     presence: std::sync::Arc<openmouse_presence::Presence>,
     profiles: crate::profiles::Profiles,
@@ -610,6 +612,7 @@ impl AppView {
             settings,
             games,
             devices: Devices::default(),
+            art_seq: 0,
             hid: None,
             presence: Default::default(),
             profiles: Default::default(),
@@ -666,6 +669,7 @@ impl Default for AppView {
             settings: Settings::default(),
             games: Vec::new(),
             devices: Devices::default(),
+            art_seq: 0,
             hid: None,
             presence: Default::default(),
             profiles: Default::default(),
@@ -793,6 +797,7 @@ impl AppView {
         self.devices.error = None;
         cx.notify();
         let service = self.hid_service();
+        let started = std::time::Instant::now();
         cx.spawn(async move |view, cx| {
             let listed = service.list_candidates().await;
             let candidates = match listed {
@@ -824,6 +829,7 @@ impl AppView {
                                 brand: c.brands.first().cloned().unwrap_or_default(),
                                 display_brand: c.brands.first().cloned().unwrap_or_default(),
                                 art: None,
+                                art_request: 0,
                                 status: TileStatus::Idle,
                             },
                         }
@@ -831,8 +837,17 @@ impl AppView {
                     .collect();
                 v.devices.selected = v.devices.selected.min(v.devices.tiles.len().saturating_sub(1));
                 v.devices.scanning = false;
+                if let Some(tile) = v.devices.tiles.first() {
+                    if matches!(tile.status, TileStatus::Idle) {
+                        let key = tile.key.clone();
+                        v.connect_tile(&key, false, cx);
+                    }
+                }
                 cx.notify();
             });
+            if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+                eprintln!("[startup] candidates={} elapsed_ms={}", candidates.len(), started.elapsed().as_millis());
+            }
             for c in &candidates {
                 // Use the name the tile carries now: a receiver that was
                 // connected is known by its mouse's name, and resolving the
@@ -854,14 +869,6 @@ impl AppView {
                 }
                 Self::load_art(&service, &c.info.key, &name, &view, cx).await;
             }
-            let _ = view.update(cx, |v: &mut Self, cx| {
-                if let Some(tile) = v.devices.tiles.first() {
-                    if matches!(tile.status, TileStatus::Idle) {
-                        let key = tile.key.clone();
-                        v.connect_tile(&key, false, cx);
-                    }
-                }
-            });
         })
         .detach();
     }
@@ -873,18 +880,51 @@ impl AppView {
         view: &WeakEntity<Self>,
         cx: &mut AsyncApp,
     ) {
-        let Ok(Ok(art)) = service.device_image(key, name).await else { return };
+        let request = view.update(cx, |v: &mut Self, _| {
+            let tile = v.devices.tiles.iter_mut().find(|t| t.key == key)?;
+            v.art_seq += 1;
+            tile.art_request = v.art_seq;
+            let image = v.settings.mouse_images.get(key).copied().unwrap_or_default();
+            let (image_key, image_name) = match image {
+                MouseImage::Automatic => (key.to_string(), name.to_string()),
+                _ => (String::new(), image.label().to_string()),
+            };
+            Some((v.art_seq, image_key, image_name))
+        });
+        let Ok(Some((request, image_key, image_name))) = request else { return };
+        let Ok(Ok(art)) = service.device_image(&image_key, &image_name).await else { return };
         let placement = art.art.clone();
         let Some(path) = cx.background_executor().spawn(async move { art.fetch() }).await else {
             return;
         };
         let key = key.to_string();
         let _ = view.update(cx, |v: &mut Self, cx| {
-            if let Some(tile) = v.devices.tiles.iter_mut().find(|t| t.key == key) {
+            if let Some(tile) = v.devices.tiles.iter_mut().find(|t| t.key == key && t.art_request == request) {
                 tile.art = Some(LoadedArt { path, placement });
                 cx.notify();
             }
         });
+    }
+
+    fn set_mouse_image(&mut self, key: &str, image: MouseImage, cx: &mut Context<Self>) {
+        let Some(tile) = self.devices.tiles.iter_mut().find(|t| t.key == key) else { return };
+        let name = tile.name.clone();
+        self.art_seq += 1;
+        tile.art_request = self.art_seq;
+        if image == MouseImage::Automatic {
+            self.settings.mouse_images.remove(key);
+        } else {
+            self.settings.mouse_images.insert(key.to_string(), image);
+        }
+        self.settings.save();
+        self.devices.expanded = None;
+        cx.notify();
+        let service = self.hid_service();
+        let key = key.to_string();
+        cx.spawn(async move |view, cx| {
+            Self::load_art(&service, &key, &name, &view, cx).await;
+        })
+        .detach();
     }
 
     /// Opens a device's settings page, connecting it first if needed.
@@ -3231,6 +3271,50 @@ impl AppView {
         };
         let sidebar = if self.sidebar_collapsed { SIDEBAR_COLLAPSED_W } else { SIDEBAR_W };
         let art_side = ((view_width - sidebar - 2.0 * PAGE_PAD) * 0.36).clamp(260.0, 520.0);
+        let image_picker = (tile.key == "1532:00b3").then(|| {
+            let selected = self.settings.mouse_images.get(&tile.key).copied().unwrap_or_default();
+            let open = self.devices.expanded.as_deref() == Some("mouse-image");
+            let mut picker = div()
+                .w(px(art_side))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(div().text_xs().text_color(muted).child("Mouse image"))
+                .child(
+                    Button::new("choose-mouse-image")
+                        .compact()
+                        .w_full()
+                        .label(format!("{}  {}", selected.label(), if open { "▴" } else { "▾" }))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.devices.expanded = if this.devices.expanded.as_deref() == Some("mouse-image") {
+                                None
+                            } else {
+                                Some("mouse-image".to_string())
+                            };
+                            cx.notify();
+                        })),
+                );
+            if open {
+                let mut choices = h_flex().gap_2().flex_wrap();
+                for image in MouseImage::ALL {
+                    let key = tile.key.clone();
+                    choices = choices.child(self.chip(
+                        format!("mouse-image-{}", image.label()),
+                        image.label().to_string(),
+                        selected == image,
+                        cx,
+                        move |this, cx| this.set_mouse_image(&key, image, cx),
+                    ));
+                }
+                picker = picker.child(choices);
+            }
+            picker.child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child("This receiver cannot identify its paired mouse. Choose its image. Only the image changes."),
+            )
+        });
 
         let mut tab_bar = h_flex().gap_1();
         // Only tabs this device has something for: Buttons if its driver (or a
@@ -3341,6 +3425,7 @@ impl AppView {
                                     .gap_2()
                                     .flex_none()
                                     .child(self.device_art(tile, art_side, 1.4))
+                                    .when_some(image_picker, |this, picker| this.child(picker))
                                     .when_some(firmware, |this, fw| {
                                         this.child(div().text_xs().text_color(muted).child(fw))
                                     }),

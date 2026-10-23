@@ -13,13 +13,9 @@
 // Node host instead of a webview, backed by node-hid instead of Tauri's
 // Rust `hidapi` commands.
 //
-// `collections` is real: src-tauri/src/hid_descriptor.rs parses each
-// interface's HID report descriptor and hid.rs merges the group's collections
-// into `HidInterface.collections`, in WebHID's own shape. That matters because
-// the protocol library's drivers gate on it — their static `isSupported(device)`
-// reads `device.collections` — so `@openmouse/protocol/drivers/registry`'s own
-// `DEVICE_DRIVERS` can match devices here exactly as it does in a browser,
-// instead of the app carrying a hand-copied registry.
+// Native discovery preserves each interface's complete descriptor roots in
+// `interfaceCollections` for driver matching. Protocol operations use the
+// group's merged `collections` and native transport.
 //
 // One device here == every HID collection sharing a (vendor id, product
 // id) pair, opened together (see hid.rs's module docs for why this is
@@ -34,13 +30,10 @@ export interface HidInterfaceInfo {
   productId: number;
   productString: string;
   manufacturerString: string;
-  /**
-   * The interface group's HID collections and the report ids they declare,
-   * parsed from each split's report descriptor by the Rust side. WebHID's own
-   * shape, because the protocol drivers' `isSupported(device)` reads exactly
-   * this to decide whether they can drive the device.
-   */
+  /** Merged collections used by the group's protocol operations. */
   collections: HIDCollectionInfo[];
+  /** Complete descriptor roots for each native interface, before group merging. */
+  interfaceCollections: HIDCollectionInfo[][];
 }
 
 interface HidInputReportPayload {

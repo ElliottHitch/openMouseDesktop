@@ -73,7 +73,12 @@ impl DeviceArt {
     /// Local file for this artwork, downloading it first if needed. Blocking
     /// (curl, like the game art); call off the UI thread.
     pub fn fetch(&self) -> Option<std::path::PathBuf> {
-        self.fetch_original().map(|path| Self::shrunk(path, &self.filename))
+        let started = std::time::Instant::now();
+        let result = self.fetch_original().map(|path| Self::shrunk(path, &self.filename));
+        if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+            eprintln!("[startup] art={} elapsed_ms={} loaded={}", self.filename, started.elapsed().as_millis(), result.is_some());
+        }
+        result
     }
 
     /// Artwork can be several times larger than it is ever drawn (2500 px for a
@@ -126,6 +131,10 @@ impl DeviceArt {
         let _ = std::fs::create_dir_all(&dir);
         let target = dir.join(&self.filename);
         if target.is_file() {
+            return Some(target);
+        }
+        if self.filename == "razer-deathadder-v3-pro.png" {
+            std::fs::write(&target, include_bytes!("../../public/devices/razer-deathadder-v3-pro.png")).ok()?;
             return Some(target);
         }
         // Art not yet on the CDN is served from public/devices (the Tauri
@@ -426,6 +435,7 @@ impl HidService {
         arg: Option<String>,
         parse: impl FnOnce(String) -> Result<T, String> + Send + 'static,
     ) -> oneshot::Receiver<Result<T, String>> {
+        let started = std::time::Instant::now();
         let (reply, raw) = oneshot::channel();
         let (out_tx, out_rx) = oneshot::channel();
         let _ = self.tx.unbounded_send(Msg::Call { function, arg, reply });
@@ -435,6 +445,12 @@ impl HidService {
                 Ok(Err(error)) => Err(error),
                 Err(_) => Err("device runtime stopped".to_string()),
             };
+            if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+                eprintln!("[startup] api={function} elapsed_ms={} result={}", started.elapsed().as_millis(), match &result {
+                    Ok(_) => "ok".to_string(),
+                    Err(error) => error.clone(),
+                });
+            }
             let _ = out_tx.send(result);
         });
         out_rx

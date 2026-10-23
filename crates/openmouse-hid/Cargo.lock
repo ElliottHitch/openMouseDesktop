@@ -33,8 +33,6 @@ checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 [[package]]
 name = "hidapi"
 version = "2.6.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "818c0e1d27887aaf76fe737042e27a66b796a7b099e6d2e1a72d106c2dff3fa6"
 dependencies = [
  "cc",
  "cfg-if",
@@ -60,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "openmouse-hid"
-version = "0.0.29"
+version = "0.0.1"
 dependencies = [
  "hidapi",
  "parking_lot",

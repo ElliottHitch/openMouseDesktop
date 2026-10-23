@@ -8,7 +8,7 @@
 //! surface. Saves are synchronous small-file writes on explicit user action
 //! (release/apply), matching the Tauri `save*` call sites.
 
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +24,38 @@ pub const MIN_OPACITY: f32 = 40.0;
 pub const MAX_BLUR: f32 = 80.0;
 /// Vibrancy ceiling in percent (same as the Settings slider max).
 pub const MAX_VIBRANCY: f32 = 200.0;
+
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseImage {
+    DeathAdderV3Pro,
+    DeathAdderV3HyperSpeed,
+    ViperV2Pro,
+    ViperV3Pro,
+    #[default]
+    #[serde(other)]
+    Automatic,
+}
+
+impl MouseImage {
+    pub const ALL: [Self; 5] = [
+        Self::Automatic,
+        Self::DeathAdderV3Pro,
+        Self::DeathAdderV3HyperSpeed,
+        Self::ViperV2Pro,
+        Self::ViperV3Pro,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Automatic => "Automatic",
+            Self::DeathAdderV3Pro => "Razer DeathAdder V3 Pro",
+            Self::DeathAdderV3HyperSpeed => "Razer DeathAdder V3 HyperSpeed",
+            Self::ViperV2Pro => "Razer Viper V2 Pro",
+            Self::ViperV3Pro => "Razer Viper V3 Pro",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredSettings {
@@ -80,6 +112,8 @@ struct StoredSettings {
     /// two sides already match).
     #[serde(default)]
     link_left_right: Option<bool>,
+    #[serde(default)]
+    mouse_images: BTreeMap<String, MouseImage>,
 }
 
 fn default_true() -> bool {
@@ -118,6 +152,7 @@ impl Default for StoredSettings {
             dynamic_vibrancy: default_vibrancy(),
             last_notified_update_version: None,
             link_left_right: None,
+            mouse_images: BTreeMap::new(),
         }
     }
 }
@@ -147,6 +182,7 @@ pub struct Settings {
     pub dynamic_vibrancy: f32,
     pub last_notified_update_version: Option<String>,
     pub link_left_right: Option<bool>,
+    pub mouse_images: BTreeMap<String, MouseImage>,
 }
 
 impl Default for Settings {
@@ -181,6 +217,9 @@ fn settings_path() -> Option<PathBuf> {
 
 impl Settings {
     pub fn load() -> Self {
+        if std::env::var_os("OPENMOUSE_TRACE_STARTUP").is_some() {
+            eprintln!("[settings] load path={:?}", settings_path());
+        }
         let stored: StoredSettings = settings_path()
             .and_then(|path| std::fs::read_to_string(path).ok())
             .and_then(|text| serde_json::from_str(&text).ok())
@@ -203,6 +242,7 @@ impl Settings {
             dynamic_vibrancy: stored.dynamic_vibrancy.clamp(0.0, MAX_VIBRANCY),
             last_notified_update_version: stored.last_notified_update_version,
             link_left_right: stored.link_left_right,
+            mouse_images: stored.mouse_images,
         }
     }
 
@@ -231,9 +271,12 @@ impl Settings {
             dynamic_vibrancy: self.dynamic_vibrancy,
             last_notified_update_version: self.last_notified_update_version.clone(),
             link_left_right: self.link_left_right,
+            mouse_images: self.mouse_images.clone(),
         };
         if let Ok(text) = serde_json::to_string_pretty(&stored) {
-            let _ = std::fs::write(path, text);
+            if let Err(error) = std::fs::write(&path, text) {
+                eprintln!("[settings] save failed at {}: {error}", path.display());
+            }
         }
     }
 }
