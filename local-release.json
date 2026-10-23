@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "recipes": {
+    "windows-x64": {
+      "engine": "powershell",
+      "script": "scripts/local-release.ps1",
+      "arguments": [],
+      "environment": {},
+      "assets": [
+        "release/OpenMouseDesktopSetup.exe",
+        "release/latest.json",
+        "release/notes.md"
+      ],
+      "releaseName": "OpenMouse Desktop v{version}",
+      "notesFile": "release/notes.md"
+    }
+  }
+}

@@ -1,3 +1,4 @@
+# Retired from GitHub Actions. Use local-release.json through the local release hub.
 name: Release
 
 # Publishes a GitHub Release for a version tag. Each release carries:
@@ -32,6 +33,7 @@ permissions:
 
 jobs:
   release:
+    if: ${{ false }}
     runs-on: windows-latest
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
