@@ -12,13 +12,31 @@ foreach ($path in @('gpui/Cargo.toml', 'gpui/installer/Cargo.toml')) {
 }
 npm ci
 if ($LASTEXITCODE) { throw 'OpenMouse JavaScript dependency installation failed.' }
-$env:CARGO_TARGET_DIR = Join-Path $PWD 'gpui/target'
-cargo build --manifest-path gpui/Cargo.toml --release --locked
-if ($LASTEXITCODE) { throw 'OpenMouse release build failed.' }
-$env:CARGO_TARGET_DIR = Join-Path $PWD 'gpui/installer/target'
-cargo build --manifest-path gpui/installer/Cargo.toml --release --locked
-if ($LASTEXITCODE) { throw 'OpenMouse installer build failed.' }
-New-Item -ItemType Directory -Path release -Force | Out-Null
-Copy-Item -LiteralPath gpui/installer/target/release/openmouse-installer.exe -Destination release/OpenMouseDesktopSetup.exe -Force
+
+# Keep MSVC output paths short when the release checkout is deeply nested.
+$buildDirectory = [System.IO.Directory]::CreateTempSubdirectory('om-')
+$targetDir = $buildDirectory.FullName
+$tempRoot = $buildDirectory.Parent.FullName
+$previousAppExe = $env:OPENMOUSE_GPUI_EXE
+try {
+    cargo build --manifest-path gpui/Cargo.toml --release --locked --target-dir $targetDir
+    if ($LASTEXITCODE) { throw 'OpenMouse release build failed.' }
+    $env:OPENMOUSE_GPUI_EXE = Join-Path $targetDir 'release/openmouse-gpui.exe'
+    cargo build --manifest-path gpui/installer/Cargo.toml --release --locked --target-dir $targetDir
+    if ($LASTEXITCODE) { throw 'OpenMouse installer build failed.' }
+    New-Item -ItemType Directory -Path release -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $targetDir 'release/openmouse-installer.exe') -Destination release/OpenMouseDesktopSetup.exe -Force
+}
+finally {
+    $env:OPENMOUSE_GPUI_EXE = $previousAppExe
+    $cleanupTarget = Get-Item -LiteralPath $targetDir -Force -ErrorAction SilentlyContinue
+    if ($cleanupTarget -is [System.IO.DirectoryInfo] -and
+        $cleanupTarget.FullName -ceq $targetDir -and
+        $cleanupTarget.Parent.FullName -ceq $tempRoot -and
+        -not ($cleanupTarget.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        Remove-Item -LiteralPath $cleanupTarget.FullName -Recurse -Force -ErrorAction Continue
+    }
+}
+
 node .github/scripts/make-release-files.mjs "v$version" release/OpenMouseDesktopSetup.exe $env:LOCAL_RELEASE_REPOSITORY release
 if ($LASTEXITCODE) { throw 'OpenMouse release metadata generation failed.' }
