@@ -69,6 +69,8 @@ struct StoredSettings {
     launch_on_startup: bool,
     #[serde(default)]
     discord_presence: bool,
+    #[serde(default)]
+    game_profiles: bool,
     /// What Rich Presence shows: the connected mouse's name, the game being
     /// played, and live stats (DPI and polling rate).
     #[serde(default = "default_true")]
@@ -137,6 +139,7 @@ impl Default for StoredSettings {
         Self {
             launch_on_startup: false,
             discord_presence: false,
+            game_profiles: false,
             discord_show_device: true,
             discord_show_game: true,
             discord_show_stats: false,
@@ -166,6 +169,7 @@ pub struct Settings {
     pub launch_on_startup: bool,
     /// Placeholder: Discord IPC wiring lands with rich-presence support.
     pub discord_presence: bool,
+    pub game_profiles: bool,
     pub discord_show_device: bool,
     pub discord_show_game: bool,
     pub discord_show_stats: bool,
@@ -228,6 +232,7 @@ impl Settings {
             dynamic_hex: stored.dynamic_hex.map(|[r, g, b]| (r, g, b)),
             launch_on_startup: stored.launch_on_startup,
             discord_presence: stored.discord_presence,
+            game_profiles: stored.game_profiles,
             discord_show_device: stored.discord_show_device,
             discord_show_game: stored.discord_show_game,
             discord_show_stats: stored.discord_show_stats,
@@ -257,6 +262,7 @@ impl Settings {
             dynamic_hex: self.dynamic_hex.map(|(r, g, b)| [r, g, b]),
             launch_on_startup: self.launch_on_startup,
             discord_presence: self.discord_presence,
+            game_profiles: self.game_profiles,
             discord_show_device: self.discord_show_device,
             discord_show_game: self.discord_show_game,
             discord_show_stats: self.discord_show_stats,

@@ -490,6 +490,7 @@ pub struct AppView {
     /// Last failure from the Launch-on-startup / Discord switches, shown under them.
     startup_error: Option<String>,
     discord_error: Option<String>,
+    game_profiles_error: Option<String>,
     badge_hovered: bool,
     opacity_slider: Option<Entity<SliderState>>,
     vibrancy_slider: Option<Entity<SliderState>>,
@@ -501,6 +502,7 @@ pub struct AppView {
     slider_seq: u64,
     _subscriptions: Vec<Subscription>,
     _game_watcher: Option<crate::game_watcher::GameWatcher>,
+    game_art_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Cached ASCII background rows, keyed by their grid dimensions.
     ascii_rows: Vec<SharedString>,
     ascii_dims: (usize, usize),
@@ -604,13 +606,11 @@ impl AppView {
             crate::activity::ACTIVITY.set_active(window.is_window_active());
         });
 
-        let games = games::load_catalog();
-        let game_watcher = crate::game_watcher::GameWatcher::start(cx);
         let mut view = Self {
             page: Page::Overview,
             sidebar_collapsed: false,
             settings,
-            games,
+            games: Vec::new(),
             devices: Devices::default(),
             art_seq: 0,
             hid: None,
@@ -629,6 +629,7 @@ impl AppView {
             presence_seq: 0,
             startup_error: None,
             discord_error: None,
+            game_profiles_error: None,
             badge_hovered: false,
             opacity_slider: Some(opacity_slider),
             vibrancy_slider: Some(vibrancy_slider),
@@ -636,13 +637,16 @@ impl AppView {
             slider_live: Default::default(),
             slider_seq: 0,
             _subscriptions: vec![sub_opacity, sub_vibrancy, sub_activity],
-            _game_watcher: Some(game_watcher),
+            _game_watcher: None,
+            game_art_cancel: None,
             ascii_rows: Vec::new(),
             ascii_dims: (0, 0),
             theme_seq: 0,
         };
         // The OS entry is the truth for launch-on-startup, not the saved flag.
-        view.profiles = crate::profiles::Profiles::load();
+        if view.settings.game_profiles {
+            view.start_games(cx);
+        }
         view.settings.launch_on_startup = crate::autostart::is_enabled();
         if view.settings.discord_presence {
             view.set_discord(true, cx);
@@ -686,11 +690,13 @@ impl Default for AppView {
             presence_seq: 0,
             startup_error: None,
             discord_error: None,
+            game_profiles_error: None,
             badge_hovered: false,
             opacity_slider: None,
             vibrancy_slider: None,
             _subscriptions: Vec::new(),
             _game_watcher: None,
+            game_art_cancel: None,
             ascii_rows: Vec::new(),
             ascii_dims: (0, 0),
             theme_seq: 0,
@@ -699,6 +705,46 @@ impl Default for AppView {
 }
 
 impl AppView {
+    pub fn runs_in_background(&self) -> bool {
+        self.settings.game_profiles || self.settings.discord_presence
+    }
+
+    fn start_games(&mut self, cx: &mut Context<Self>) {
+        self.games = games::load_catalog();
+        self.profiles = crate::profiles::Profiles::load();
+        self._game_watcher = Some(crate::game_watcher::GameWatcher::start(cx));
+        let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.game_art_cancel = Some(cancelled.clone());
+        let games = self.games.clone();
+        cx.spawn(async move |view, cx| {
+            cx.background_executor().spawn(async move {
+                games::prefetch_art(&games, &cancelled);
+            }).await;
+            let _ = view.update(cx, |_, cx| cx.notify());
+        }).detach();
+    }
+
+    fn set_game_profiles(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if !enabled && (!self.profile_overrides.is_empty() || !self.profile_inflight.is_empty()) {
+            self.game_profiles_error = Some("Close games using a profile before turning this off, so their previous mouse settings can be restored.".into());
+            return;
+        }
+        self.game_profiles_error = None;
+        self.settings.game_profiles = enabled;
+        if enabled {
+            self.start_games(cx);
+        } else {
+            self._game_watcher = None;
+            if let Some(cancelled) = self.game_art_cancel.take() {
+                cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            self.games.clear();
+            self.profiles = Default::default();
+            self.profile_editor = None;
+            self.refresh_presence(cx);
+        }
+    }
+
     /// What Rich Presence should say right now, from the settings and state:
     /// the game being played (top line) and the mouse and its stats (second line).
     fn presence_text(&self) -> (String, String) {
@@ -1422,6 +1468,9 @@ impl AppView {
         updates: &[crate::game_watcher::GameUpdate],
         cx: &mut Context<Self>,
     ) {
+        if !self.settings.game_profiles {
+            return;
+        }
         // Edges, found by comparing with what was known before this batch.
         let mut started = Vec::new();
         let mut closed = Vec::new();
@@ -4045,6 +4094,12 @@ impl AppView {
     /// games and the rest of the catalog as grids of poster cards. Cached art
     /// falls back to a name-initial tile until prefetch completes.
     fn render_games(&self, cx: &mut Context<Self>) -> AnyElement {
+        if !self.settings.game_profiles {
+            return div().p_6().flex().flex_col().gap_2()
+                .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child("Games"))
+                .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Game profiles are off. Enable them in Settings to track games and use profiles."))
+                .into_any_element();
+        }
         let (installed, rest): (Vec<&Game>, Vec<&Game>) =
             self.games.iter().partition(|g| g.installed || g.running);
         let running = self.games.iter().filter(|g| g.running).count();
@@ -4298,6 +4353,7 @@ impl AppView {
                         match switch_id {
                             "startup-switch" => self.startup_error.clone(),
                             "discord-switch" => self.discord_error.clone(),
+                            "game-profiles-switch" => self.game_profiles_error.clone(),
                             _ => None,
                         }
                         .map(|error| div().text_xs().text_color(cx.theme().danger).child(error)),
@@ -4309,6 +4365,8 @@ impl AppView {
                     .on_change(cx.listener(move |this, enabled: &bool, _, cx| {
                         if switch_id == "startup-switch" {
                             this.set_launch_on_startup(*enabled);
+                        } else if switch_id == "game-profiles-switch" {
+                            this.set_game_profiles(*enabled, cx);
                         } else if switch_id == "discord-device" {
                             this.settings.discord_show_device = *enabled;
                             this.refresh_presence(cx);
@@ -4536,9 +4594,17 @@ impl AppView {
                         ))
                         .child(div().h(px(1.)).w_full().bg(cx.theme().border))
                         .child(self.render_switch_row(
+                            "game-profiles-switch",
+                            "Game profiles",
+                            "Detect games and apply their mouse profiles. Keeps OpenMouse running in the tray.",
+                            self.settings.game_profiles,
+                            cx,
+                        ))
+                        .child(div().h(px(1.)).w_full().bg(cx.theme().border))
+                        .child(self.render_switch_row(
                             "discord-switch",
                             "Discord Rich Presence",
-                            "Show OpenMouse in your Discord status. Requires Discord to be running.",
+                            "Show OpenMouse in your Discord status. Keeps OpenMouse running in the tray.",
                             self.settings.discord_presence,
                             cx,
                         ))
@@ -4554,13 +4620,13 @@ impl AppView {
                                     self.settings.discord_show_device,
                                     cx,
                                 ))
-                                .child(self.render_switch_row(
+                                .when(self.settings.game_profiles, |section| section.child(self.render_switch_row(
                                     "discord-game",
                                     "Current game",
                                     "\"Playing …\" while a game from your library is running.",
                                     self.settings.discord_show_game,
                                     cx,
-                                ))
+                                )))
                                 .child(self.render_switch_row(
                                     "discord-stats",
                                     "Live stats",
@@ -4597,6 +4663,7 @@ impl AppView {
                             self.settings.instant_apply,
                             cx,
                         ))
+                        .when(self.settings.game_profiles, |section| section
                         .child(div().h(px(1.)).w_full().bg(cx.theme().border))
                         .child(self.render_switch_row(
                             "overlay-switch",
@@ -4644,7 +4711,7 @@ impl AppView {
                                         row
                                     }),
                             )
-                        }),
+                        })),
                     ),
             )
             .into_any_element()

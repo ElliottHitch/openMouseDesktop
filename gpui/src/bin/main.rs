@@ -69,10 +69,10 @@ fn main() {
             view.update(cx, |view, cx| view.set_page(page, cx));
         }
         // Closing the window hides it to the tray icon (where there is one).
-        let has_tray = openmouse_gpui::tray::install(cx, handle.into());
+        let has_tray = openmouse_gpui::tray::install(cx, handle.into(), &view);
         // Started by the OS at login (see autostart.rs): stay out of the way,
         // in the tray if there is one, else minimized.
-        if openmouse_gpui::autostart::launched_by_os() {
+        if openmouse_gpui::autostart::launched_by_os() && view.read(cx).runs_in_background() {
             let _ = cx.update_window(handle, |_, window, _| {
                 if has_tray {
                     openmouse_gpui::tray::hide(window);
@@ -122,24 +122,6 @@ fn main() {
         // Startup + 6-hour background check for a newer release (check +
         // notify only — no download/install yet).
         openmouse_gpui::update_check::spawn_update_watcher(cx, &view);
-        // Game art prefetch: download missing covers on the background
-        // executor (curl, 20s/file cap), then notify so cards repaint from
-        // letter tiles to art. Non-fatal.
-        {
-            let view_weak = view.downgrade();
-            cx.spawn(async move |cx| {
-                cx.background_executor()
-                    .spawn(async {
-                        let games = openmouse_gpui::games::load_catalog();
-                        openmouse_gpui::games::prefetch_art(&games);
-                    })
-                    .await;
-                let _ = view_weak.update(cx, |_, cx| {
-                    cx.notify();
-                });
-            })
-            .detach();
-        }
         // Startup Dynamic sample: resample off-thread and repaint on landing
         // (covers cold start with no cache, not just wallpaper *changes*).
         if stored.theme == openmouse_gpui::theme::ThemeChoice::Dynamic {

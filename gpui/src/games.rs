@@ -102,17 +102,22 @@ pub fn cached_art_path(game: &Game) -> Option<std::path::PathBuf> {
 /// callers must run this off the UI thread. Uses the system `curl`
 /// (dependency-free) with a per-file timeout; failures are skipped, leaving
 /// the letter tile in place.
-pub fn prefetch_art(games: &[Game]) {
+pub fn prefetch_art(games: &[Game], cancelled: &std::sync::atomic::AtomicBool) {
+    static NEXT_DOWNLOAD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let download = NEXT_DOWNLOAD.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let Some(dir) = art_cache_dir() else { return };
     let _ = std::fs::create_dir_all(&dir);
     for game in games {
+        if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
         let Some(url) = game.art_url() else { continue };
         let target = art_cache_path(&dir, game);
         if target.is_file() {
             continue;
         }
-        let tmp = dir.join(format!("{}.part", game.id));
-        let status = crate::proc::quiet(
+        let tmp = dir.join(format!("{}-{}-{download}.part", game.id, std::process::id()));
+        let child = crate::proc::quiet(
             std::process::Command::new("curl")
                 .args(["-sSfL", "-m", "20", "-o"])
                 .arg(&tmp)
@@ -121,8 +126,28 @@ pub fn prefetch_art(games: &[Game]) {
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null()),
         )
-        .status();
-        if status.is_ok_and(|s| s.success()) && tmp.is_file() {
+        .spawn();
+        let success = if let Ok(mut child) = child {
+            loop {
+                if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break false;
+                }
+                match child.try_wait() {
+                    Ok(Some(status)) => break status.success(),
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                    Err(_) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break false;
+                    }
+                }
+            }
+        } else {
+            false
+        };
+        if success && tmp.is_file() {
             let _ = std::fs::rename(&tmp, &target);
         } else {
             let _ = std::fs::remove_file(&tmp);

@@ -1,5 +1,4 @@
-//! System tray: closing the main window hides it to a tray icon instead of
-//! quitting, and the icon brings it back. Quitting is the tray menu's job.
+//! System tray for enabled background features.
 //!
 //! Windows and macOS (menu bar); elsewhere [`install`] does nothing and closing
 //! the window quits as before.
@@ -8,7 +7,7 @@
 mod imp {
     use futures::channel::mpsc;
     use futures::StreamExt as _;
-    use gpui_kit::{AnyWindowHandle, App, AppContext as _, Window};
+    use gpui_kit::{AnyWindowHandle, App, AppContext as _, Entity, Window};
     use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
@@ -109,9 +108,7 @@ mod imp {
         ACTIVITY.set_active(true);
     }
 
-    /// Creates the tray icon and makes closing `window` hide it. Returns
-    /// whether the tray exists; without one, closing still quits.
-    pub fn install(cx: &mut App, window: AnyWindowHandle) -> bool {
+    pub fn install(cx: &mut App, window: AnyWindowHandle, view: &Entity<crate::app::AppView>) -> bool {
         let Some(icon) = platform::icon() else {
             return false;
         };
@@ -170,9 +167,14 @@ mod imp {
         })
         .detach();
 
+        let view = view.clone();
         let _ = cx.update_window(window, |_, window, cx| {
-            window.on_window_should_close(cx, |window, _| {
-                hide(window);
+            window.on_window_should_close(cx, move |window, cx| {
+                if view.read(cx).runs_in_background() {
+                    hide(window);
+                } else {
+                    cx.quit();
+                }
                 false
             });
         });
@@ -184,7 +186,7 @@ mod imp {
 pub use imp::{hide, install};
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn install(_cx: &mut gpui_kit::App, _window: gpui_kit::AnyWindowHandle) -> bool {
+pub fn install(_cx: &mut gpui_kit::App, _window: gpui_kit::AnyWindowHandle, _view: &gpui_kit::Entity<crate::app::AppView>) -> bool {
     false
 }
 
